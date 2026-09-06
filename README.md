@@ -1,4 +1,4 @@
-# 글루코케어 Pro (GlucoCare Pro) — v1.0.2
+# 글루코케어 Pro (GlucoCare Pro) — v1.0.3
 
 혈당·혈압·체중·식단·운동·약물을 한곳에서 기록하는 통합 건강관리 PWA입니다.
 바닐라 JS + IndexedDB로 만든 오프라인 우선 구조이며, 외부 UI 프레임워크 의존성이 없습니다.
@@ -10,7 +10,7 @@
 
 ```bash
 mkdir glucocare-pro && cd glucocare-pro
-unzip ../glucocare-pro-v1_0_2.zip
+unzip ../glucocare-pro-v1_0_3.zip
 python3 -m http.server 8080
 # 브라우저에서 http://localhost:8080 접속
 ```
@@ -100,6 +100,11 @@ glucocare/
   `icon-*-maskable.png`를 별도로 만들어 매니페스트에 분리 등록했습니다.
 - 서비스워커 캐시 이름을 버전에 맞춰 올렸습니다(`glucocare-pro-v1` → `glucocare-pro-v1_0_2`) —
   다음 배포 때도 이 값을 함께 올려주세요.
+
+## v1.0.3 — 버전 표시
+
+"공유" 탭 맨 아래에 `글루코케어 Pro · v1.0.3`처럼 현재 버전이 표시됩니다.
+`js/app.js` 상단의 `APP_VERSION` 값 하나만 바꾸면 화면 표시도 같이 바뀝니다.
 
 ## 자리만 마련되어 있고, 연동이 필요한 기능
 
