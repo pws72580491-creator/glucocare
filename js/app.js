@@ -2,6 +2,8 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
+  const APP_VERSION = '1.0.3';
+
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
     bp: { icon: '❤️', label: '혈압', store: 'bp' },
@@ -336,6 +338,8 @@
     const hasDemo = await DB.hasDemoData();
     $('#dataManageHead').style.display = hasDemo ? '' : 'none';
     $('#dataManageCard').style.display = hasDemo ? '' : 'none';
+
+    $('#versionFooter').textContent = `글루코케어 Pro · v${APP_VERSION}`;
   }
 
   $('#btnClearDemo').addEventListener('click', async () => {
