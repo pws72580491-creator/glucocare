@@ -5,17 +5,50 @@
 
 ## 실행 방법
 
-Service Worker와 일부 최신 API는 `file://`로 직접 열면 동작하지 않을 수 있습니다.
-로컬 웹서버로 열어주세요.
+이 zip은 압축을 풀면 `index.html`이 최상위에 바로 오도록 구성되어 있습니다
+(Vercel Drop 등 정적 호스팅에 그대로 올리기 위함).
 
 ```bash
-cd glucocare
+mkdir glucocare-pro && cd glucocare-pro
+unzip ../glucocare-pro-v1.0.1.zip
 python3 -m http.server 8080
 # 브라우저에서 http://localhost:8080 접속
 ```
 
-배포 시에는 정적 호스팅(Firebase Hosting, Netlify, Vercel 등) 아무 곳이나 사용 가능합니다.
+Service Worker와 일부 최신 API는 `file://`로 직접 열면 동작하지 않습니다 (위처럼 로컬 서버로 열거나, 아래 Vercel로 배포하면 자동으로 HTTPS가 붙어 정상 동작합니다).
 모바일 브라우저에서 "홈 화면에 추가"를 하면 PWA로 설치됩니다.
+
+## Vercel 배포
+
+`vercel.json`을 이미 포함해뒀습니다 (서비스워커 캐시 무효화, manifest 콘텐츠 타입 설정).
+세 가지 방법 중 상황에 맞는 걸 고르면 됩니다.
+
+### 방법 1 — Vercel Drop (계정만 있으면 Git·CLI 없이 가장 빠름)
+
+Vercel이 2026년 6월에 내놓은 기능으로, 폴더나 zip을 브라우저에 드래그하면 바로 배포됩니다.
+
+1. 압축을 새 폴더에 풀어주세요 (위 "실행 방법" 참고 — `index.html`이 폴더 최상위에 있어야 합니다).
+2. [vercel.com/drop](https://vercel.com/drop) 접속 → 그 폴더(또는 zip 파일)를 페이지에 드래그
+3. 팀과 프로젝트 이름을 정하고 **Deploy**
+4. 몇 초 안에 실제 운영 URL이 발급됩니다.
+
+⚠️ Drop은 드래그할 때마다 **새 프로젝트**를 만듭니다. 지금처럼 버전을 올릴 때마다 같은 프로젝트에 이어서 배포하고 싶다면 방법 2를 추천합니다.
+
+### 방법 2 — Vercel CLI (버전이 올라갈 때마다 같은 프로젝트에 이어 배포하고 싶을 때 추천)
+
+```bash
+npm i -g vercel
+cd glucocare-pro        # 압축을 푼 폴더
+vercel                  # 최초 1회: 로그인 + 프로젝트 연결 (Framework Preset: Other)
+vercel --prod           # 이후 버전마다 이 명령으로 같은 프로젝트에 배포
+```
+
+최초 `vercel` 실행 시 생성되는 `.vercel/` 폴더가 프로젝트 연결 정보를 담고 있습니다. 다음 버전 zip을 받으면 이 폴더를 새 버전 폴더로 복사해 넣고 `vercel --prod`를 실행하면 같은 프로젝트로 계속 배포됩니다.
+
+### 방법 3 — Git 연동 (푸시할 때마다 자동 배포하고 싶을 때)
+
+GitHub/GitLab/Bitbucket에 올린 뒤 Vercel 대시보드에서 **Import** → Framework Preset: **Other** → **Deploy**.
+이후로는 푸시할 때마다 자동으로 재배포됩니다.
 
 ## 폴더 구조
 
@@ -24,6 +57,7 @@ glucocare/
 ├─ index.html          대시보드 · 기록 · 그래프 · 리포트 · 공유 화면
 ├─ manifest.json        PWA 매니페스트
 ├─ sw.js                오프라인 앱 셸 캐싱
+├─ vercel.json           Vercel 배포 설정 (서비스워커 캐시, manifest 타입)
 ├─ css/style.css        전체 스타일
 ├─ js/db.js             IndexedDB 저장소 래퍼
 ├─ js/foodDb.js         한식 영양 참고 테이블 + 이름 기반 자동 매칭

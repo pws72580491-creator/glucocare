@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v1.0.1 — 2026-09-06
+
+### 추가
+- `vercel.json` 추가 (서비스워커 캐시 무효화 헤더, manifest 콘텐츠 타입)
+- README에 Vercel 배포 3가지 방법 문서화: Drop(드래그앤드롭), CLI(버전 이어서 배포), Git 연동(자동 배포)
+- zip 구조를 최상위에 `index.html`이 오도록 변경 (Vercel Drop 등 정적 호스팅에 바로 대응하기 위함 — 이전 버전은 `glucocare/` 폴더로 한 번 감싸져 있었음)
+
 ## v1.0.0 — 2026-09-06
 
 최초 릴리스.
