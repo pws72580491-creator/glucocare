@@ -338,6 +338,16 @@ a { color: inherit; }
 .empty-state .glyph { font-size: 32px; margin-bottom: var(--space-2); }
 .empty-state p { margin: 0; font-size: 13.5px; line-height: 1.6; }
 
+/* ---------- 버전 표시 ---------- */
+.version-footer {
+  text-align: center;
+  margin-top: var(--space-5);
+  padding-bottom: var(--space-2);
+  font-size: 11px;
+  color: var(--text-faint);
+  opacity: .7;
+}
+
 /* ---------- tabs (segmented) ---------- */
 
 .seg-tabs {
