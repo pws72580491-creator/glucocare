@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>글루코케어 Pro</title>
+<meta name="description" content="혈당·혈압·체중·식단·운동·약물을 한곳에서 기록하는 통합 건강관리 PWA">
+<meta name="theme-color" content="#1F5C52">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="mark">글루코케어 <span style="color:var(--accent)">Pro</span></div>
+      <div class="date" id="topbarDate">-</div>
+    </div>
+    <button class="quick-add" id="btnQuickAdd" aria-label="기록 추가">+</button>
+  </div>
+
+  <!-- ===================== 대시보드 ===================== -->
+  <section class="view active" id="view-dashboard">
+
+    <div class="hero">
+      <div class="label">오늘 평균 혈당</div>
+      <div class="big-row">
+        <span class="big-num" id="heroGlucose">–</span>
+        <span class="big-unit">mg/dL</span>
+      </div>
+      <div class="status-chip" id="heroStatus">기록 없음</div>
+      <div class="mini-stats">
+        <div class="item"><div class="k">혈압</div><div class="v" id="heroBp">–</div></div>
+        <div class="item"><div class="k">체중</div><div class="v" id="heroWeight">–</div></div>
+        <div class="item"><div class="k">오늘 식사</div><div class="v" id="heroMeals">–</div></div>
+      </div>
+    </div>
+
+    <div class="timeline-card">
+      <h3>오늘의 흐름 — 식사 · 혈당</h3>
+      <div class="timeline-track" id="timelineTrack">
+        <div class="timeline-axis"></div>
+      </div>
+      <div class="timeline-labels"><span>00시</span><span>06시</span><span>12시</span><span>18시</span><span>24시</span></div>
+    </div>
+
+    <div class="section-head"><h2>오늘의 기록</h2><button class="link-btn" data-goto="records">전체보기</button></div>
+    <div id="dashboardRecordList"></div>
+
+  </section>
+
+  <!-- ===================== 기록 ===================== -->
+  <section class="view" id="view-records">
+    <div class="section-head" style="margin-top:var(--space-4)"><h2>기록</h2></div>
+    <div class="seg-tabs" id="recordTypeTabs">
+      <button class="seg-tab active" data-type="all">전체</button>
+      <button class="seg-tab" data-type="glucose">혈당</button>
+      <button class="seg-tab" data-type="bp">혈압</button>
+      <button class="seg-tab" data-type="weight">체중</button>
+      <button class="seg-tab" data-type="meal">식단</button>
+      <button class="seg-tab" data-type="exercise">운동</button>
+      <button class="seg-tab" data-type="medication">약물</button>
+    </div>
+    <div id="recordFullList"></div>
+  </section>
+
+  <!-- ===================== 그래프 ===================== -->
+  <section class="view" id="view-charts">
+    <div class="section-head" style="margin-top:var(--space-4)"><h2>그래프</h2></div>
+    <div class="seg-tabs" id="chartRangeTabs">
+      <button class="seg-tab" data-range="7">7일</button>
+      <button class="seg-tab active" data-range="30">30일</button>
+      <button class="seg-tab" data-range="90">90일</button>
+    </div>
+
+    <div class="a1c-card">
+      <div class="k">예상 당화혈색소 (eA1C)</div>
+      <div class="v" id="a1cValue">–</div>
+      <div class="note">최근 90일 평균 혈당 기반 추정치이며 참고용입니다.<br>정확한 진단은 의료기관 검사를 통해 확인하세요.</div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-head"><h3>혈당 추이</h3><span style="font-size:11.5px;color:var(--text-faint)" id="glucoseRangeLabel">목표 70–140</span></div>
+      <canvas id="chartGlucose" height="160"></canvas>
+      <div class="chart-legend">
+        <span><span class="dot" style="background:var(--good)"></span>정상 범위</span>
+        <span><span class="dot" style="background:var(--alert)"></span>범위 이탈</span>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-head"><h3>혈압 추이</h3><span style="font-size:11.5px;color:var(--text-faint)">수축기 / 이완기</span></div>
+      <canvas id="chartBp" height="160"></canvas>
+      <div class="chart-legend">
+        <span><span class="dot" style="background:var(--primary)"></span>수축기</span>
+        <span><span class="dot" style="background:var(--accent)"></span>이완기</span>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-head"><h3>체중 추이</h3></div>
+      <canvas id="chartWeight" height="160"></canvas>
+    </div>
+  </section>
+
+  <!-- ===================== 리포트 ===================== -->
+  <section class="view" id="view-report">
+    <div class="section-head" style="margin-top:var(--space-4)"><h2>리포트</h2></div>
+    <div class="report-actions">
+      <button class="btn primary" id="btnPrintReport">PDF로 저장 / 인쇄</button>
+      <button class="btn outline" id="btnExportCsv">CSV 내보내기</button>
+    </div>
+    <div class="report-summary">
+      <table id="reportTable"></table>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head"><h3>기간 내 혈당 분포</h3></div>
+      <canvas id="chartReport" height="160"></canvas>
+    </div>
+    <p style="font-size:11.5px;color:var(--text-faint);line-height:1.7">
+      리포트는 최근 30일 기록을 기준으로 생성됩니다. "PDF로 저장"은 브라우저 인쇄 기능을 사용해 PDF로 저장하거나 진료 시 바로 인쇄해 지참할 수 있습니다.
+    </p>
+  </section>
+
+  <!-- ===================== 공유 ===================== -->
+  <section class="view" id="view-share">
+    <div class="section-head" style="margin-top:var(--space-4)"><h2>가족·의료진과 공유</h2></div>
+    <div class="share-card">
+      <div style="font-size:13px;color:var(--text-muted)">내 공유 코드</div>
+      <div class="share-code" id="shareCode">– – – – – –</div>
+      <button class="btn ghost small" id="btnCopyCode">코드 복사</button>
+      <p style="font-size:11.5px;color:var(--text-faint);margin-top:var(--space-3);line-height:1.6">
+        가족이나 의료진에게 이 코드를 전달하면 내 건강 기록을 함께 확인할 수 있습니다.
+        실시간 동기화·채팅 기능은 서버 연동(Firebase) 설정 후 활성화됩니다 — README를 참고하세요.
+      </p>
+    </div>
+    <div class="section-head"><h2>연결된 보호자</h2></div>
+    <div class="share-card" id="partnerList">
+      <div class="empty-state">
+        <div class="glyph">👪</div>
+        <p>아직 연결된 가족이나 의료진이 없습니다.<br>공유 코드를 전달해 초대해 보세요.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== bottom tab bar ===================== -->
+  <nav class="tabbar">
+    <button class="active" data-view="dashboard"><span class="glyph">🏠</span>대시보드</button>
+    <button data-view="records"><span class="glyph">📋</span>기록</button>
+    <button data-view="charts"><span class="glyph">📈</span>그래프</button>
+    <button data-view="report"><span class="glyph">🧾</span>리포트</button>
+    <button data-view="share"><span class="glyph">🤝</span>공유</button>
+  </nav>
+
+  <!-- ===================== add-record sheet ===================== -->
+  <div class="sheet-overlay" id="sheetOverlay">
+    <div class="sheet" id="sheetContent">
+      <!-- injected by app.js -->
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script src="js/db.js"></script>
+<script src="js/foodDb.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/insights.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
