@@ -21,6 +21,13 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+  // 사용자가 직접 입력한 텍스트(음식 이름/운동 종류/약품명/메모 등)를 innerHTML에 넣기 전에
+  // HTML 이스케이프한다. <script>나 onerror= 같은 값이 그대로 저장돼 있어도 화면에서 태그로
+  // 해석되지 않도록 막는 안전장치.
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
   function pad(n) { return String(n).padStart(2, '0'); }
   function todayStr(d = new Date()) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
   function nowTimeStr(d = new Date()) { return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
@@ -89,7 +96,7 @@
     const t = r._type;
     if (t === 'glucose') {
       const out = Insights.isOutOfRange(r.value);
-      return { title: r.context || '혈당', meta: fmtDateTime(r.timestamp), value: `${r.value} mg/dL`, alert: out };
+      return { title: esc(r.context) || '혈당', meta: fmtDateTime(r.timestamp), value: `${r.value} mg/dL`, alert: out };
     }
     if (t === 'bp') {
       const out = r.systolic >= 140 || r.diastolic >= 90;
@@ -102,17 +109,17 @@
       const hasDelta = r._delta !== null && r._delta !== undefined;
       const deltaText = hasDelta ? ` · 식후 변화 ${r._delta > 0 ? '+' : ''}${r._delta}` : '';
       return {
-        title: `${r.mealType} · ${r.name}`,
+        title: `${esc(r.mealType)} · ${esc(r.name)}`,
         meta: `${fmtDateTime(r.timestamp)} · 탄수 ${r.carbs}g · 나트륨 ${r.sodium}mg${deltaText}`,
         value: `GI ${r.gi ?? '-'}`,
         alert: hasDelta && r._delta > 60,
       };
     }
     if (t === 'exercise') {
-      return { title: r.type, meta: fmtDateTime(r.timestamp) + (r.intensity ? ` · ${r.intensity}` : ''), value: `${r.minutes}분`, alert: false };
+      return { title: esc(r.type), meta: fmtDateTime(r.timestamp) + (r.intensity ? ` · ${esc(r.intensity)}` : ''), value: `${r.minutes}분`, alert: false };
     }
     if (t === 'medication') {
-      return { title: r.name, meta: fmtDateTime(r.timestamp) + (r.memo ? ` · ${r.memo}` : ''), value: r.dose || '', alert: false };
+      return { title: esc(r.name), meta: fmtDateTime(r.timestamp) + (r.memo ? ` · ${esc(r.memo)}` : ''), value: esc(r.dose) || '', alert: false };
     }
     return { title: '기록', meta: '', value: '', alert: false };
   }
@@ -138,6 +145,11 @@
       const store = TYPE_META[del.dataset.delType].store;
       await DB.remove(store, Number(del.dataset.del));
       toast('삭제되었습니다');
+      render();
+    }
+    if (e.target.closest('#btnSeedDemo')) {
+      await DB.seedIfEmpty();
+      toast('체험 데이터를 채웠어요. 다 둘러보셨으면 "공유" 탭에서 언제든 지울 수 있어요.');
       render();
     }
   });
@@ -174,7 +186,9 @@
 
     $('#dashboardRecordList').innerHTML = todays.length
       ? todays.slice(0, 8).map(recordRowHtml).join('')
-      : `<div class="empty-state"><div class="glyph">📝</div><p>오늘 기록이 아직 없어요.<br>오른쪽 위 + 버튼으로 첫 기록을 남겨보세요.</p></div>`;
+      : all.length === 0
+        ? `<div class="empty-state"><div class="glyph">👋</div><p>아직 기록이 없어요.<br>바로 기록을 시작하거나, 화면 구성을 체험 데이터로 먼저 둘러볼 수 있어요.</p><button class="btn ghost small" id="btnSeedDemo" type="button" style="margin:var(--space-3) auto 0">체험 데이터로 둘러보기</button></div>`
+        : `<div class="empty-state"><div class="glyph">📝</div><p>오늘 기록이 아직 없어요.<br>오른쪽 위 + 버튼으로 첫 기록을 남겨보세요.</p></div>`;
   }
 
   function renderTimeline(todays) {
@@ -318,7 +332,17 @@
       await DB.setMeta('shareCode', code);
     }
     $('#shareCode').textContent = code.split('').join(' ');
+
+    const hasDemo = await DB.hasDemoData();
+    $('#dataManageHead').style.display = hasDemo ? '' : 'none';
+    $('#dataManageCard').style.display = hasDemo ? '' : 'none';
   }
+
+  $('#btnClearDemo').addEventListener('click', async () => {
+    const n = await DB.clearDemoData();
+    toast(n ? '체험 데이터를 삭제했어요' : '삭제할 체험 데이터가 없어요');
+    render();
+  });
 
   $('#btnCopyCode').addEventListener('click', async () => {
     const code = (await DB.getMeta('shareCode')) || '';
@@ -564,6 +588,28 @@
     }
   });
 
+  // 저장 직전 생리학적으로 말이 안 되는 값을 한 번 더 막는다. 폼의 min/max는
+  // 사용자 실수를 줄여주는 힌트일 뿐 강제되지 않으므로(프로그램적 제출이나 일부
+  // 모바일 브라우저에서는 우회될 수 있음) 여기서 재검증한다.
+  function validateRecord(type, r) {
+    if (type === 'glucose') {
+      if (!Number.isFinite(r.value) || r.value < 20 || r.value > 600) return '혈당 값이 올바르지 않아요 (20~600 mg/dL)';
+    }
+    if (type === 'bp') {
+      if (!Number.isFinite(r.systolic) || r.systolic < 60 || r.systolic > 260) return '수축기 혈압이 올바르지 않아요 (60~260 mmHg)';
+      if (!Number.isFinite(r.diastolic) || r.diastolic < 30 || r.diastolic > 180) return '이완기 혈압이 올바르지 않아요 (30~180 mmHg)';
+      if (r.pulse !== null && (!Number.isFinite(r.pulse) || r.pulse < 30 || r.pulse > 220)) return '맥박 값이 올바르지 않아요 (30~220)';
+      if (r.systolic <= r.diastolic) return '수축기 혈압은 이완기 혈압보다 높아야 해요';
+    }
+    if (type === 'weight') {
+      if (!Number.isFinite(r.value) || r.value < 20 || r.value > 300) return '체중 값이 올바르지 않아요 (20~300 kg)';
+    }
+    if (type === 'exercise') {
+      if (!Number.isFinite(r.minutes) || r.minutes < 1 || r.minutes > 600) return '운동 시간이 올바르지 않아요 (1~600분)';
+    }
+    return null;
+  }
+
   // ------------------------------------------------------------ form submit
   sheetContent.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -587,6 +633,9 @@
       photoNote: '',
     };
 
+    const err = validateRecord(type, record);
+    if (err) { toast(err); return; }
+
     await DB.add(TYPE_META[type].store, record);
     toast('기록을 저장했어요');
     closeSheet();
@@ -607,7 +656,6 @@
 
   // ---------------------------------------------------------------- init
   (async function init() {
-    await DB.seedIfEmpty();
     if ('serviceWorker' in navigator) {
       try { navigator.serviceWorker.register('sw.js'); } catch (err) { /* offline shell optional */ }
     }

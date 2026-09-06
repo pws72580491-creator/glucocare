@@ -97,8 +97,11 @@ const DB = (() => {
   }
 
   async function seedIfEmpty() {
-    const existing = await getAll('glucose');
-    if (existing.length > 0) return false;
+    for (const s of STORES) {
+      if (s === 'meta') continue;
+      const existing = await getAll(s);
+      if (existing.length > 0) return false;
+    }
 
     const now = new Date();
     const iso = (d) => d.toISOString();
@@ -111,19 +114,19 @@ const DB = (() => {
 
     const glucoseSeed = [];
     for (let day = 6; day >= 0; day--) {
-      glucoseSeed.push({ timestamp: iso(daysAgo(day, 7, 30)), value: 92 + Math.round(Math.random() * 14), context: '공복', memo: '' });
-      glucoseSeed.push({ timestamp: iso(daysAgo(day, 8, 45)), value: 138 + Math.round(Math.random() * 30), context: '식후1시간', memo: '' });
-      glucoseSeed.push({ timestamp: iso(daysAgo(day, 12, 30)), value: 108 + Math.round(Math.random() * 12), context: '식전', memo: '' });
-      glucoseSeed.push({ timestamp: iso(daysAgo(day, 14, 0)), value: 132 + Math.round(Math.random() * 34), context: '식후2시간', memo: '' });
-      glucoseSeed.push({ timestamp: iso(daysAgo(day, 21, 30)), value: 104 + Math.round(Math.random() * 16), context: '취침전', memo: '' });
+      glucoseSeed.push({ timestamp: iso(daysAgo(day, 7, 30)), value: 92 + Math.round(Math.random() * 14), context: '공복', memo: '', demo: true });
+      glucoseSeed.push({ timestamp: iso(daysAgo(day, 8, 45)), value: 138 + Math.round(Math.random() * 30), context: '식후1시간', memo: '', demo: true });
+      glucoseSeed.push({ timestamp: iso(daysAgo(day, 12, 30)), value: 108 + Math.round(Math.random() * 12), context: '식전', memo: '', demo: true });
+      glucoseSeed.push({ timestamp: iso(daysAgo(day, 14, 0)), value: 132 + Math.round(Math.random() * 34), context: '식후2시간', memo: '', demo: true });
+      glucoseSeed.push({ timestamp: iso(daysAgo(day, 21, 30)), value: 104 + Math.round(Math.random() * 16), context: '취침전', memo: '', demo: true });
     }
     for (const g of glucoseSeed) await add('glucose', g);
 
     for (let day = 6; day >= 0; day--) {
-      await add('bp', { timestamp: iso(daysAgo(day, 7, 0)), systolic: 122 + Math.round(Math.random() * 12), diastolic: 78 + Math.round(Math.random() * 8), pulse: 68 + Math.round(Math.random() * 10), memo: '' });
+      await add('bp', { timestamp: iso(daysAgo(day, 7, 0)), systolic: 122 + Math.round(Math.random() * 12), diastolic: 78 + Math.round(Math.random() * 8), pulse: 68 + Math.round(Math.random() * 10), memo: '', demo: true });
     }
     for (let day = 6; day >= 0; day -= 2) {
-      await add('weight', { timestamp: iso(daysAgo(day, 7, 5)), value: Math.round((68 + Math.random() * 1.4) * 10) / 10, memo: '' });
+      await add('weight', { timestamp: iso(daysAgo(day, 7, 5)), value: Math.round((68 + Math.random() * 1.4) * 10) / 10, memo: '', demo: true });
     }
 
     const mealSeed = [
@@ -133,15 +136,38 @@ const DB = (() => {
     ];
     for (let day = 2; day >= 0; day--) {
       for (const m of mealSeed) {
-        await add('meal', { ...m, timestamp: iso(daysAgo(day, m.mealType === '아침' ? 8 : m.mealType === '점심' ? 12 : 19, 0)), photoNote: '' });
+        await add('meal', { ...m, timestamp: iso(daysAgo(day, m.mealType === '아침' ? 8 : m.mealType === '점심' ? 12 : 19, 0)), photoNote: '', demo: true });
       }
     }
 
-    await add('exercise', { timestamp: iso(daysAgo(1, 18, 30)), type: '걷기', minutes: 30, intensity: '보통' });
-    await add('medication', { timestamp: iso(daysAgo(0, 8, 0)), name: '메트포르민', dose: '500mg', memo: '아침 식후' });
+    await add('exercise', { timestamp: iso(daysAgo(1, 18, 30)), type: '걷기', minutes: 30, intensity: '보통', demo: true });
+    await add('medication', { timestamp: iso(daysAgo(0, 8, 0)), name: '메트포르민', dose: '500mg', memo: '아침 식후', demo: true });
 
     return true;
   }
 
-  return { open, add, getAll, remove, getSince, setMeta, getMeta, seedIfEmpty, STORES };
+  // 체험용 샘플 데이터가 남아있는지 확인 (demo: true 태그 기준)
+  async function hasDemoData() {
+    for (const s of STORES) {
+      if (s === 'meta') continue;
+      const rows = await getAll(s);
+      if (rows.some((r) => r.demo)) return true;
+    }
+    return false;
+  }
+
+  // 체험용 샘플 데이터만 골라서 삭제 (실제 기록은 보존)
+  async function clearDemoData() {
+    let count = 0;
+    for (const s of STORES) {
+      if (s === 'meta') continue;
+      const rows = await getAll(s);
+      for (const r of rows) {
+        if (r.demo) { await remove(s, r.id); count++; }
+      }
+    }
+    return count;
+  }
+
+  return { open, add, getAll, remove, getSince, setMeta, getMeta, seedIfEmpty, hasDemoData, clearDemoData, STORES };
 })();
