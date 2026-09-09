@@ -1,4 +1,4 @@
-# 글루코케어 Pro (GlucoCare Pro) — v1.0.3
+# 글루코케어 Pro (GlucoCare Pro) — v1.1.1
 
 혈당·혈압·체중·식단·운동·약물을 한곳에서 기록하는 통합 건강관리 PWA입니다.
 바닐라 JS + IndexedDB로 만든 오프라인 우선 구조이며, 외부 UI 프레임워크 의존성이 없습니다.
@@ -10,7 +10,7 @@
 
 ```bash
 mkdir glucocare-pro && cd glucocare-pro
-unzip ../glucocare-pro-v1_0_3.zip
+unzip ../glucocare-pro-v1_1_1.zip
 python3 -m http.server 8080
 # 브라우저에서 http://localhost:8080 접속
 ```
@@ -57,7 +57,8 @@ glucocare/
 ├─ index.html          대시보드 · 기록 · 그래프 · 리포트 · 공유 화면
 ├─ manifest.json        PWA 매니페스트
 ├─ sw.js                오프라인 앱 셸 캐싱
-├─ vercel.json           Vercel 배포 설정 (서비스워커 캐시, manifest 타입)
+├─ vercel.json           Vercel 배포 설정 (서비스워커 캐시, manifest 타입, api 함수 설정)
+├─ api/analyze-meal.js  서버리스 함수 — 식사 사진을 Gemini Vision으로 분석 (API 키는 서버에만 존재)
 ├─ icons/icon-*-maskable.png  안드로이드 적응형 아이콘용 (안전영역 여백 포함)
 ├─ css/style.css        전체 스타일
 ├─ js/db.js             IndexedDB 저장소 래퍼
@@ -71,6 +72,7 @@ glucocare/
 
 - 혈당·혈압·체중·식단·운동·약물 통합 기록 (IndexedDB, 오프라인 저장)
 - 오늘의 대시보드: 평균 혈당, 목표범위 여부, 하루 타임라인(식사·혈당 함께 표시)
+- 식사 사진을 올리면 AI(Gemini Vision)가 음식 이름과 영양을 추정 — 아래 "사진으로 AI 식단 분석 설정" 참고 (설정 전이거나 실패 시, 기존처럼 음식 이름을 직접 입력하면 자동 전환됨)
 - 식사 이름 입력 시 로컬 영양 테이블(`foodDb.js`)에서 자동 매칭 → 탄수화물/단백질/지방/나트륨/GI 자동 채움 (수동 보정 가능)
 - 간단한 휴리스틱 기반 "식사 점수"와 식후 혈당 변화(Δ) 표시
 - 7/30/90일 그래프(혈당·혈압·체중), 목표범위 밴드 표시
@@ -106,6 +108,49 @@ glucocare/
 "공유" 탭 맨 아래에 `글루코케어 Pro · v1.0.3`처럼 현재 버전이 표시됩니다.
 `js/app.js` 상단의 `APP_VERSION` 값 하나만 바꾸면 화면 표시도 같이 바뀝니다.
 
+## v1.1.0 — 사진으로 AI 식단 분석
+
+식사 사진을 올리면 Gemini Vision이 음식 이름과 탄수화물/단백질/지방/나트륨/GI를 추정해서
+자동으로 채워줍니다. 로컬 영양 테이블(20종)에 있는 음식이면 그쪽 값을 우선 쓰고, 없는
+음식이면 AI가 준 추정치를 그대로 씁니다(화면에 "🤖 AI 추정"으로 구분 표시).
+
+**설정 방법 (필수 — 안 하면 사진 분석 없이 기존처럼 이름 직접 입력으로 동작합니다)**
+
+1. [Google AI Studio](https://aistudio.google.com/apikey)에서 Gemini API 키를 발급받습니다.
+2. Vercel 프로젝트 → **Settings** → **Environment Variables**에 `GEMINI_API_KEY`를 추가합니다
+   (Production/Preview/Development 모두 체크 권장).
+3. **반드시 재배포(Redeploy)**해야 환경변수가 적용됩니다. Vercel Drop으로 처음 배포했더라도,
+   이후 대시보드에서 프로젝트를 열어 환경변수를 넣고 Redeploy 버튼을 누르면 됩니다.
+4. 식단 기록 화면에서 사진을 선택하면 자동으로 분석이 시작됩니다.
+
+**정상 작동 확인**
+
+- 가장 확실한 방법: 식단 기록에서 사진을 실제로 올려보기. "🔎 사진을 분석하고 있어요…" →
+  몇 초 뒤 "AI 분석 완료!"와 함께 음식 이름·영양 정보가 자동으로 채워지면 정상입니다.
+  (서비스워커가 이전 버전을 캐시해뒀을 수 있으니, 안 되면 새로고침을 한 번 해보세요.)
+- 서버 함수가 배포됐는지만 빠르게 확인하려면, 브라우저에서 `https://내도메인/api/analyze-meal`로
+  직접 접속(GET)해보세요. `{"error":"POST 요청만 지원합니다."}` 같은 JSON이 뜨면 함수는 정상
+  배포된 것이고, Vercel 기본 404 페이지가 뜨면 함수 자체가 안 올라간 것입니다.
+- 실패 원인을 자세히 보려면 Vercel 대시보드 → **Deployments** → 해당 배포 클릭 →
+  **Functions**(또는 Logs) 탭에서 `analyze-meal` 호출 로그를 확인하세요. 어떤 단계(키
+  미설정/Gemini 오류/응답 파싱 실패/타임아웃)에서 실패했는지 남습니다.
+
+**알아두면 좋은 점**
+
+- 사진은 분석을 위해 서버(Vercel 함수)를 거쳐 Google Gemini API로 전송됩니다. 사진 자체는
+  기록에 저장되지 않고(음식 이름·영양 수치만 저장), 화면에는 미리보기로만 표시됩니다.
+- Gemini API는 사용량 기반 과금입니다. flash 계열 모델은 이미지 1장당 비용이 매우 낮지만,
+  정확한 요금은 [Gemini API 가격 페이지](https://ai.google.dev/pricing)를 참고하세요.
+- Vercel이 아닌 순수 정적 호스팅(GitHub Pages 등)이나 `file://`로 직접 열면 `/api` 서버리스
+  함수가 없어서 사진 분석은 실패하고, 안내 메시지와 함께 기존 방식(이름 직접 입력)으로
+  자동 전환됩니다 — 앱이 멈추거나 깨지지는 않습니다.
+- Google이 Gemini 모델명을 몇 주 간격으로 바꿉니다. 404 오류가 뜨면
+  `api/analyze-meal.js` 상단의 `DEFAULT_MODEL`(현재 `gemini-2.5-flash`)을
+  [현재 모델 목록](https://ai.google.dev/gemini-api/docs/models)에서 확인해 바꾸거나,
+  Vercel 환경변수 `GEMINI_MODEL`로 덮어쓰면 코드 수정 없이 해결됩니다.
+- 사진은 업로드 전 브라우저에서 자동으로 리사이즈(긴 변 1024px)·압축됩니다 — Vercel
+  서버리스 함수의 요청 크기 제한(4.5MB) 때문이기도 하고, 데이터도 절약됩니다.
+
 ## 자리만 마련되어 있고, 연동이 필요한 기능
 
 원본 기획서에 있는 아래 기능들은 브라우저 표준 API만으로는 구현이 불가능하거나
@@ -114,7 +159,6 @@ glucocare/
 
 | 기능 | 왜 지금은 안 되는지 | 다음 단계 |
 |---|---|---|
-| 사진 → 실제 AI 음식 자동 인식 | 이미지 분류에는 비전 모델 API 호출이 필요 (정적 페이지만으론 불가) | "발주관리" 앱에서 쓰신 Gemini API 패턴처럼, 사진을 base64로 인코딩해 Vision 모델에 전달 → 반환된 음식명을 `FoodDB.matchByName()`에 넘기면 지금 UI에 바로 연결됩니다 |
 | CGM(프리스타일 리브레 등) 실시간 연동 | 각 제조사 전용 BLE 프로토콜/클라우드 API 필요, 브라우저 표준으로는 접근 불가 | 제조사 공식 SDK가 있는 네이티브 앱(iOS/Android) 또는 해당 업체 클라우드 API 서버 연동 필요 |
 | 애플 건강 / 구글 헬스 커넥트 / 핏빗 | HealthKit·Health Connect는 네이티브 전용 API (웹에서 접근 불가) | React Native, Capacitor 등으로 네이티브 래핑 후 해당 SDK 연동 |
 | 가족·의료진 실시간 공유·채팅 | 실시간 동기화에는 백엔드(서버 또는 Firebase 같은 BaaS)가 필요 | 아래 "Firebase 연동" 참고 |
