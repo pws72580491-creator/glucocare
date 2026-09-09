@@ -2,7 +2,7 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
-  const APP_VERSION = '1.0.3';
+  const APP_VERSION = '1.1.1';
 
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
@@ -480,7 +480,7 @@
             <label>사진으로 기록 (선택)</label>
             <div class="photo-drop" id="photoDrop">
               <div class="glyph">📷</div>
-              <p>음식 사진을 올리면 미리보기가 표시됩니다.<br>사진 → 음식명 자동 인식은 Vision API 연동 후 지원됩니다.<br>지금은 아래에서 음식 이름으로 영양을 자동 매칭해보세요.</p>
+              <p>음식 사진을 올리면 AI가 음식 이름과 영양을 추정해봐요.<br>추정이 부정확하면 아래 값을 직접 수정하면 됩니다.</p>
             </div>
             <input type="file" accept="image/*" id="photoInput" style="display:none">
           </div>
@@ -525,17 +525,104 @@
     if (group.dataset.chipGroup === 'mealType') renderMealAnalysis();
   });
 
-  // meal photo preview (decorative — no real vision processing without an API key)
+  // 이미지를 캔버스로 리사이즈·재압축한다. Vercel 서버리스 함수의 요청 본문 한도가
+  // 4.5MB라서, 휴대폰 원본 사진(수 MB~수십 MB)을 그대로 보내면 실패하기 쉽다.
+  // 긴 변 1024px, JPEG 품질 0.8 정도면 웬만한 음식 사진은 수백 KB로 줄어든다.
+  function compressImageForUpload(file, maxDim = 1024, quality = 0.8) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('read-failed'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('decode-failed'));
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            const scale = maxDim / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve({ dataUrl, base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // AI가 인식한 음식 이름은 먼저 로컬 FoodDB(20종)와 대조한다 — 일치하면 우리가
+  // 직접 검수한 값이 더 믿을 만하므로 그쪽을 우선한다. 로컬에 없는 음식일 때만
+  // AI가 준 추정치를 그대로 쓴다.
+  function applyAiMealResult(ai) {
+    const status = $('#photoStatus');
+    if (status) status.textContent = 'AI 분석 완료! 필요하면 아래 값을 수정하세요.';
+    $('#mealNameInput').value = ai.name;
+    const local = FoodDB.matchByName(ai.name);
+    if (local) {
+      $('#mealCarbs').value = local.carbs;
+      $('#mealProtein').value = local.protein;
+      $('#mealFat').value = local.fat;
+      $('#mealSodium').value = local.sodium;
+      $('#mealGi').value = local.gi;
+      renderMealAnalysis(local);
+    } else {
+      const guess = {
+        carbs: ai.carbs_g, protein: ai.protein_g, fat: ai.fat_g, sodium: ai.sodium_mg, gi: ai.gi,
+        confidence: ai.confidence, aiNote: ai.note || '',
+      };
+      $('#mealCarbs').value = guess.carbs;
+      $('#mealProtein').value = guess.protein;
+      $('#mealFat').value = guess.fat;
+      $('#mealSodium').value = guess.sodium;
+      $('#mealGi').value = guess.gi;
+      renderMealAnalysis(guess);
+    }
+  }
+
   sheetContent.addEventListener('click', (e) => {
     if (e.target.closest('#photoDrop')) $('#photoInput').click();
   });
-  sheetContent.addEventListener('change', (e) => {
-    if (e.target.id === 'photoInput' && e.target.files[0]) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        $('#photoDrop').outerHTML = `<img class="photo-preview" src="${reader.result}" alt="식사 사진 미리보기"><div class="photo-drop" id="photoDrop" style="padding:12px"><p>사진이 첨부되었습니다. 아래 음식 이름으로 영양 정보를 매칭하세요.</p></div>`;
-      };
-      reader.readAsDataURL(e.target.files[0]);
+  sheetContent.addEventListener('change', async (e) => {
+    if (e.target.id !== 'photoInput' || !e.target.files[0]) return;
+    const file = e.target.files[0];
+
+    let compressed;
+    try {
+      compressed = await compressImageForUpload(file);
+    } catch {
+      toast('사진을 불러오지 못했어요');
+      return;
+    }
+
+    $('#photoDrop').outerHTML = `<img class="photo-preview" src="${compressed.dataUrl}" alt="식사 사진 미리보기"><div class="photo-drop" id="photoDrop" style="padding:12px"><p id="photoStatus">🔎 사진을 분석하고 있어요…</p></div>`;
+
+    try {
+      let res;
+      try {
+        res = await fetch('/api/analyze-meal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: compressed.base64, mimeType: compressed.mimeType }),
+        });
+      } catch {
+        throw new Error('네트워크 오류로 사진을 분석하지 못했어요.');
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('이 배포 환경에서는 사진 분석을 쓸 수 없어요 (Vercel 서버리스 함수 필요). 음식 이름을 직접 입력해주세요.');
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data && data.error ? data.error : '분석에 실패했어요.');
+      applyAiMealResult(data);
+    } catch (err) {
+      const status = $('#photoStatus');
+      if (status) status.textContent = '사진이 첨부되었습니다. 아래 음식 이름으로 영양 정보를 매칭하세요.';
+      toast(err.message);
     }
   });
 
@@ -554,16 +641,17 @@
     if (!slot) return;
     const values = match || currentMealValues();
     const score = FoodDB.estimateMealScore(values);
+    const aiOnly = !!(match && match.aiNote !== undefined);
     slot.innerHTML = `
       ${match ? `
       <div class="ai-analysis">
-        <div class="head">✨ 영양 자동 분석</div>
+        <div class="head">${aiOnly ? '🤖 AI 추정 (로컬 데이터에 없는 음식)' : '✨ 영양 자동 분석'}</div>
         <div class="nutrient-grid">
           <div class="n"><div class="val">${match.carbs}g</div><div class="lab">탄수화물</div></div>
           <div class="n"><div class="val">${match.protein}g</div><div class="lab">단백질</div></div>
           <div class="n"><div class="val">${match.fat}g</div><div class="lab">지방</div></div>
         </div>
-        <div class="note">참고용 추정치예요 (신뢰도 ${Math.round(match.confidence * 100)}%). 실제 섭취량에 맞게 아래 값을 조정하세요.</div>
+        <div class="note">${aiOnly && match.aiNote ? esc(match.aiNote) + ' · ' : ''}참고용 추정치예요 (신뢰도 ${Math.round(match.confidence * 100)}%). 실제 섭취량에 맞게 아래 값을 조정하세요.</div>
       </div>` : ''}
       <div class="meal-score">
         <div class="ring ${score.tier}">${score.score}</div>
