@@ -1,4 +1,4 @@
-# 글루코케어 Pro (GlucoCare Pro) — v1.1.1
+# 글루코케어 Pro (GlucoCare Pro) — v1.1.2
 
 혈당·혈압·체중·식단·운동·약물을 한곳에서 기록하는 통합 건강관리 PWA입니다.
 바닐라 JS + IndexedDB로 만든 오프라인 우선 구조이며, 외부 UI 프레임워크 의존성이 없습니다.
@@ -10,7 +10,7 @@
 
 ```bash
 mkdir glucocare-pro && cd glucocare-pro
-unzip ../glucocare-pro-v1_1_1.zip
+unzip ../glucocare-pro-v1_1_2.zip
 python3 -m http.server 8080
 # 브라우저에서 http://localhost:8080 접속
 ```
@@ -144,10 +144,13 @@ glucocare/
 - Vercel이 아닌 순수 정적 호스팅(GitHub Pages 등)이나 `file://`로 직접 열면 `/api` 서버리스
   함수가 없어서 사진 분석은 실패하고, 안내 메시지와 함께 기존 방식(이름 직접 입력)으로
   자동 전환됩니다 — 앱이 멈추거나 깨지지는 않습니다.
-- Google이 Gemini 모델명을 몇 주 간격으로 바꿉니다. 404 오류가 뜨면
-  `api/analyze-meal.js` 상단의 `DEFAULT_MODEL`(현재 `gemini-2.5-flash`)을
-  [현재 모델 목록](https://ai.google.dev/gemini-api/docs/models)에서 확인해 바꾸거나,
-  Vercel 환경변수 `GEMINI_MODEL`로 덮어쓰면 코드 수정 없이 해결됩니다.
+- Google이 Gemini 모델명을 몇 주~몇 달 간격으로 바꿉니다(2.x 계열은 이미 종료되고
+  3.x 계열로 넘어갔습니다). 404 오류가 계속 뜨면 `api/analyze-meal.js` 상단의
+  `DEFAULT_MODELS`(현재 `['gemini-3.8-flash', 'gemini-3.6-flash']` — 첫 모델이
+  404면 자동으로 둘째 모델을 시도합니다)를
+  [현재 모델 목록](https://ai.google.dev/gemini-api/docs/models)을 참고해 갱신하거나,
+  Vercel 환경변수 `GEMINI_MODEL`로 특정 모델 하나를 강제 지정하면 코드 수정 없이
+  해결됩니다(이 경우 자동 폴백은 꺼집니다).
 - 사진은 업로드 전 브라우저에서 자동으로 리사이즈(긴 변 1024px)·압축됩니다 — Vercel
   서버리스 함수의 요청 크기 제한(4.5MB) 때문이기도 하고, 데이터도 절약됩니다.
 

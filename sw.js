@@ -3,7 +3,7 @@
  * 데이터(IndexedDB)는 항상 로컬에 있으므로, 여기서는 UI 자원만 캐시합니다.
  */
 // 캐시 이름을 앱 버전에 맞춰 올려주세요 — 그래야 배포 시 이전 캐시가 자동으로 정리됩니다.
-const CACHE_NAME = 'glucocare-pro-v1_1_1';
+const CACHE_NAME = 'glucocare-pro-v1_1_2';
 const APP_SHELL = [
   './',
   './index.html',
