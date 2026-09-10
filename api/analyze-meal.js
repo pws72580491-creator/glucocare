@@ -13,10 +13,12 @@
  * 압축된 이미지만 보내지만, 민감한 사진은 올리지 않는 게 좋습니다.
  */
 
-// Google이 몇 주 간격으로 모델을 바꾸므로 이름을 상수로 분리해뒀습니다.
-// 404가 뜨면 https://ai.google.dev/gemini-api/docs/models 에서 현재 모델명을 확인해
-// Vercel 환경변수 GEMINI_MODEL로 덮어쓰거나 아래 기본값을 바꾸세요.
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+// Google이 몇 주~몇 달 간격으로 모델을 은퇴시키고 새 버전을 냅니다
+// (2026-09 기준: 2.0 계열은 이미 종료, 2.5-pro도 종료 예정 — 3.x 계열이 현재 라인업).
+// 그래서 기본값을 배열로 두고, 첫 모델이 404(모델 자체가 없음)면 자동으로 다음 모델을
+// 시도합니다. GEMINI_MODEL 환경변수를 설정하면 그 모델 하나만 씁니다(자동 폴백 없음).
+// 404가 계속 나면 https://ai.google.dev/gemini-api/docs/models 에서 현재 모델명을 확인하세요.
+const DEFAULT_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash'];
 
 const PROMPT = `당신은 한국 음식 사진을 보고 무엇인지 알아내는 영양 분석 도우미입니다.
 사진 속 음식을 보고 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운, 코드블록 없이 JSON 객체 하나만 출력하세요.
@@ -68,83 +70,100 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
+  const configuredModel = process.env.GEMINI_MODEL;
+  const modelsToTry = configuredModel ? [configuredModel] : DEFAULT_MODELS;
 
-  try {
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        signal: controller.signal,
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { inline_data: { mime_type: mimeType, data: imageBase64 } },
-                { text: PROMPT },
-              ],
-            },
-          ],
-          generationConfig: { temperature: 0.2, response_mime_type: 'application/json' },
-        }),
-      }
-    );
-    clearTimeout(timeout);
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const model = modelsToTry[i];
+    const isLastModel = i === modelsToTry.length - 1;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text().catch(() => '');
-      console.error(`[analyze-meal] Gemini API 오류 (model=${model}, status=${geminiRes.status}):`, errText.slice(0, 500));
-      res.status(502).json({ error: `Gemini API 오류 (${geminiRes.status})`, detail: errText.slice(0, 300) });
-      return;
-    }
-
-    const data = await geminiRes.json();
-    const raw = data && data.candidates && data.candidates[0] && data.candidates[0].content
-      && data.candidates[0].content.parts && data.candidates[0].content.parts[0]
-      && data.candidates[0].content.parts[0].text;
-    if (!raw) {
-      res.status(502).json({ error: 'Gemini 응답에서 결과를 찾지 못했어요.' });
-      return;
-    }
-
-    let parsed;
     try {
-      parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
-    } catch {
-      console.error('[analyze-meal] Gemini 응답 JSON 파싱 실패. 원문:', raw.slice(0, 500));
-      res.status(502).json({ error: 'Gemini 응답을 해석하지 못했어요.' });
-      return;
-    }
+      const geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          signal: controller.signal,
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { inline_data: { mime_type: mimeType, data: imageBase64 } },
+                  { text: PROMPT },
+                ],
+              },
+            ],
+            generationConfig: { temperature: 0.2, response_mime_type: 'application/json' },
+          }),
+        }
+      );
+      clearTimeout(timeout);
 
-    const name = String(parsed.name || '').trim().slice(0, 30);
-    if (!name) {
-      res.status(422).json({ error: '사진에서 음식을 알아보지 못했어요. 이름을 직접 입력해주세요.' });
-      return;
-    }
+      if (geminiRes.status === 404 && !isLastModel) {
+        // 이 모델명이 없어졌을 뿐일 수 있으니, 다음 후보 모델로 넘어간다.
+        console.error(`[analyze-meal] 모델 ${model} 404 — 다음 모델(${modelsToTry[i + 1]})로 재시도`);
+        continue;
+      }
 
-    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : 0));
-    console.log(`[analyze-meal] 성공: "${name}" (model=${model}, confidence=${parsed.confidence})`);
-    res.status(200).json({
-      name,
-      carbs_g: clamp(Number(parsed.carbs_g), 0, 300),
-      protein_g: clamp(Number(parsed.protein_g), 0, 200),
-      fat_g: clamp(Number(parsed.fat_g), 0, 200),
-      sodium_mg: clamp(Number(parsed.sodium_mg), 0, 6000),
-      gi: clamp(Number(parsed.gi), 0, 100),
-      confidence: clamp(Number(parsed.confidence), 0, 1),
-      note: String(parsed.note || '').trim().slice(0, 200),
-    });
-  } catch (err) {
-    clearTimeout(timeout);
-    if (err && err.name === 'AbortError') {
-      console.error(`[analyze-meal] 타임아웃 (model=${model}, 25초 초과)`);
-      res.status(504).json({ error: '분석이 너무 오래 걸려서 중단했어요. 다시 시도해주세요.' });
+      if (!geminiRes.ok) {
+        const errText = await geminiRes.text().catch(() => '');
+        console.error(`[analyze-meal] Gemini API 오류 (model=${model}, status=${geminiRes.status}):`, errText.slice(0, 500));
+        const hint = geminiRes.status === 404
+          ? ' 시도한 모델을 모두 찾지 못했어요. GEMINI_MODEL 환경변수나 코드의 DEFAULT_MODELS를 최신 모델명으로 바꿔주세요 (https://ai.google.dev/gemini-api/docs/models).'
+          : '';
+        res.status(502).json({ error: `Gemini API 오류 (${geminiRes.status})${hint}`, detail: errText.slice(0, 300) });
+        return;
+      }
+
+      const data = await geminiRes.json();
+      const raw = data && data.candidates && data.candidates[0] && data.candidates[0].content
+        && data.candidates[0].content.parts && data.candidates[0].content.parts[0]
+        && data.candidates[0].content.parts[0].text;
+      if (!raw) {
+        res.status(502).json({ error: 'Gemini 응답에서 결과를 찾지 못했어요.' });
+        return;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
+      } catch {
+        console.error('[analyze-meal] Gemini 응답 JSON 파싱 실패. 원문:', raw.slice(0, 500));
+        res.status(502).json({ error: 'Gemini 응답을 해석하지 못했어요.' });
+        return;
+      }
+
+      const name = String(parsed.name || '').trim().slice(0, 30);
+      if (!name) {
+        res.status(422).json({ error: '사진에서 음식을 알아보지 못했어요. 이름을 직접 입력해주세요.' });
+        return;
+      }
+
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : 0));
+      console.log(`[analyze-meal] 성공: "${name}" (model=${model}, confidence=${parsed.confidence})`);
+      res.status(200).json({
+        name,
+        carbs_g: clamp(Number(parsed.carbs_g), 0, 300),
+        protein_g: clamp(Number(parsed.protein_g), 0, 200),
+        fat_g: clamp(Number(parsed.fat_g), 0, 200),
+        sodium_mg: clamp(Number(parsed.sodium_mg), 0, 6000),
+        gi: clamp(Number(parsed.gi), 0, 100),
+        confidence: clamp(Number(parsed.confidence), 0, 1),
+        note: String(parsed.note || '').trim().slice(0, 200),
+      });
+      return;
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err && err.name === 'AbortError') {
+        console.error(`[analyze-meal] 타임아웃 (model=${model}, 12초 초과)`);
+        res.status(504).json({ error: '분석이 너무 오래 걸려서 중단했어요. 다시 시도해주세요.' });
+        return;
+      }
+      console.error('[analyze-meal] 예외 발생:', err);
+      res.status(500).json({ error: '분석 중 오류가 발생했어요.', detail: String(err).slice(0, 300) });
       return;
     }
-    console.error('[analyze-meal] 예외 발생:', err);
-    res.status(500).json({ error: '분석 중 오류가 발생했어요.', detail: String(err).slice(0, 300) });
   }
 };
