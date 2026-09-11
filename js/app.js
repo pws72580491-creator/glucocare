@@ -2,7 +2,7 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
-  const APP_VERSION = '1.1.3';
+  const APP_VERSION = '1.2.0';
 
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
@@ -141,6 +141,13 @@
       </div>`;
   }
 
+  async function openRecordForEdit(type, id) {
+    const store = TYPE_META[type].store;
+    const record = await DB.get(store, id);
+    if (!record) { toast('기록을 찾을 수 없어요'); return; }
+    openSheet(formHtml(type, record));
+  }
+
   document.addEventListener('click', async (e) => {
     const del = e.target.closest('[data-del]');
     if (del) {
@@ -148,11 +155,17 @@
       await DB.remove(store, Number(del.dataset.del));
       toast('삭제되었습니다');
       render();
+      return;
     }
     if (e.target.closest('#btnSeedDemo')) {
       await DB.seedIfEmpty();
       toast('체험 데이터를 채웠어요. 다 둘러보셨으면 "공유" 탭에서 언제든 지울 수 있어요.');
       render();
+      return;
+    }
+    const row = e.target.closest('.record-row[data-id]');
+    if (row) {
+      await openRecordForEdit(row.dataset.type, Number(row.dataset.id));
     }
   });
 
@@ -396,12 +409,15 @@
   function chipGroup(name, options, selected) {
     return `<div class="chip-select" data-chip-group="${name}">
       ${options.map((o) => `<button type="button" class="chip${o === selected ? ' active' : ''}" data-chip-value="${o}">${o}</button>`).join('')}
-      <input type="hidden" name="${name}" value="${selected || options[0]}">
+      <input type="hidden" name="${name}" value="${esc(selected || options[0])}">
     </div>`;
   }
 
-  function formHtml(type) {
-    const now = new Date();
+  function formHtml(type, existing = null) {
+    const now = existing ? new Date(existing.timestamp) : new Date();
+    const editIdAttr = existing ? ` data-edit-id="${existing.id}"` : '';
+    const submitLabel = existing ? '수정 완료' : '저장';
+    const suffix = existing ? ' 수정' : '';
     const dateTimeFields = `
       <div class="field row2">
         <div><label>날짜</label><input type="date" name="date" value="${todayStr(now)}" required></div>
@@ -411,71 +427,71 @@
     if (type === 'glucose') {
       return `
         <div class="sheet-handle"></div>
-        <div class="sheet-head"><h2>🩸 혈당 기록</h2><button data-close-sheet aria-label="닫기">✕</button></div>
-        <form id="recordForm" data-type="glucose">
-          <div class="field"><label>혈당 (mg/dL)</label><input type="number" name="value" min="20" max="600" placeholder="예: 105" required></div>
-          <div class="field"><label>측정 시점</label>${chipGroup('context', ['공복', '식전', '식후1시간', '식후2시간', '취침전', '기타'], '식전')}</div>
+        <div class="sheet-head"><h2>🩸 혈당 기록${suffix}</h2><button data-close-sheet aria-label="닫기">✕</button></div>
+        <form id="recordForm" data-type="glucose"${editIdAttr}>
+          <div class="field"><label>혈당 (mg/dL)</label><input type="number" name="value" min="20" max="600" placeholder="예: 105" value="${existing ? existing.value : ''}" required></div>
+          <div class="field"><label>측정 시점</label>${chipGroup('context', ['공복', '식전', '식후1시간', '식후2시간', '취침전', '기타'], existing ? existing.context : '식전')}</div>
           ${dateTimeFields}
-          <div class="field"><label>메모 (선택)</label><textarea name="memo" placeholder="컨디션, 특이사항 등"></textarea></div>
-          <button class="btn primary" type="submit">저장</button>
+          <div class="field"><label>메모 (선택)</label><textarea name="memo" placeholder="컨디션, 특이사항 등">${existing ? esc(existing.memo || '') : ''}</textarea></div>
+          <button class="btn primary" type="submit">${submitLabel}</button>
         </form>`;
     }
     if (type === 'bp') {
       return `
         <div class="sheet-handle"></div>
-        <div class="sheet-head"><h2>❤️ 혈압 기록</h2><button data-close-sheet aria-label="닫기">✕</button></div>
-        <form id="recordForm" data-type="bp">
+        <div class="sheet-head"><h2>❤️ 혈압 기록${suffix}</h2><button data-close-sheet aria-label="닫기">✕</button></div>
+        <form id="recordForm" data-type="bp"${editIdAttr}>
           <div class="field row2">
-            <div><label>수축기 (mmHg)</label><input type="number" name="systolic" min="60" max="260" placeholder="120" required></div>
-            <div><label>이완기 (mmHg)</label><input type="number" name="diastolic" min="30" max="180" placeholder="80" required></div>
+            <div><label>수축기 (mmHg)</label><input type="number" name="systolic" min="60" max="260" placeholder="120" value="${existing ? existing.systolic : ''}" required></div>
+            <div><label>이완기 (mmHg)</label><input type="number" name="diastolic" min="30" max="180" placeholder="80" value="${existing ? existing.diastolic : ''}" required></div>
           </div>
-          <div class="field"><label>맥박 (선택)</label><input type="number" name="pulse" min="30" max="220" placeholder="72"></div>
+          <div class="field"><label>맥박 (선택)</label><input type="number" name="pulse" min="30" max="220" placeholder="72" value="${existing && existing.pulse ? existing.pulse : ''}"></div>
           ${dateTimeFields}
-          <div class="field"><label>메모 (선택)</label><textarea name="memo"></textarea></div>
-          <button class="btn primary" type="submit">저장</button>
+          <div class="field"><label>메모 (선택)</label><textarea name="memo">${existing ? esc(existing.memo || '') : ''}</textarea></div>
+          <button class="btn primary" type="submit">${submitLabel}</button>
         </form>`;
     }
     if (type === 'weight') {
       return `
         <div class="sheet-handle"></div>
-        <div class="sheet-head"><h2>⚖️ 체중 기록</h2><button data-close-sheet aria-label="닫기">✕</button></div>
-        <form id="recordForm" data-type="weight">
-          <div class="field"><label>체중 (kg)</label><input type="number" step="0.1" name="value" min="20" max="300" placeholder="예: 68.5" required></div>
+        <div class="sheet-head"><h2>⚖️ 체중 기록${suffix}</h2><button data-close-sheet aria-label="닫기">✕</button></div>
+        <form id="recordForm" data-type="weight"${editIdAttr}>
+          <div class="field"><label>체중 (kg)</label><input type="number" step="0.1" name="value" min="20" max="300" placeholder="예: 68.5" value="${existing ? existing.value : ''}" required></div>
           ${dateTimeFields}
-          <div class="field"><label>메모 (선택)</label><textarea name="memo"></textarea></div>
-          <button class="btn primary" type="submit">저장</button>
+          <div class="field"><label>메모 (선택)</label><textarea name="memo">${existing ? esc(existing.memo || '') : ''}</textarea></div>
+          <button class="btn primary" type="submit">${submitLabel}</button>
         </form>`;
     }
     if (type === 'exercise') {
       return `
         <div class="sheet-handle"></div>
-        <div class="sheet-head"><h2>🏃 운동 기록</h2><button data-close-sheet aria-label="닫기">✕</button></div>
-        <form id="recordForm" data-type="exercise">
-          <div class="field"><label>운동 종류</label><input type="text" name="type" placeholder="걷기, 자전거 등" required></div>
-          <div class="field"><label>운동 시간 (분)</label><input type="number" name="minutes" min="1" max="600" placeholder="30" required></div>
-          <div class="field"><label>강도</label>${chipGroup('intensity', ['가벼움', '보통', '강함'], '보통')}</div>
+        <div class="sheet-head"><h2>🏃 운동 기록${suffix}</h2><button data-close-sheet aria-label="닫기">✕</button></div>
+        <form id="recordForm" data-type="exercise"${editIdAttr}>
+          <div class="field"><label>운동 종류</label><input type="text" name="type" placeholder="걷기, 자전거 등" value="${existing ? esc(existing.type) : ''}" required></div>
+          <div class="field"><label>운동 시간 (분)</label><input type="number" name="minutes" min="1" max="600" placeholder="30" value="${existing ? existing.minutes : ''}" required></div>
+          <div class="field"><label>강도</label>${chipGroup('intensity', ['가벼움', '보통', '강함'], existing ? existing.intensity : '보통')}</div>
           ${dateTimeFields}
-          <button class="btn primary" type="submit">저장</button>
+          <button class="btn primary" type="submit">${submitLabel}</button>
         </form>`;
     }
     if (type === 'medication') {
       return `
         <div class="sheet-handle"></div>
-        <div class="sheet-head"><h2>💊 약물 기록</h2><button data-close-sheet aria-label="닫기">✕</button></div>
-        <form id="recordForm" data-type="medication">
-          <div class="field"><label>약품명</label><input type="text" name="name" placeholder="예: 메트포르민" required></div>
-          <div class="field"><label>용량 (선택)</label><input type="text" name="dose" placeholder="예: 500mg"></div>
+        <div class="sheet-head"><h2>💊 약물 기록${suffix}</h2><button data-close-sheet aria-label="닫기">✕</button></div>
+        <form id="recordForm" data-type="medication"${editIdAttr}>
+          <div class="field"><label>약품명</label><input type="text" name="name" placeholder="예: 메트포르민" value="${existing ? esc(existing.name) : ''}" required></div>
+          <div class="field"><label>용량 (선택)</label><input type="text" name="dose" placeholder="예: 500mg" value="${existing ? esc(existing.dose || '') : ''}"></div>
           ${dateTimeFields}
-          <div class="field"><label>메모 (선택)</label><textarea name="memo" placeholder="식전/식후 등"></textarea></div>
-          <button class="btn primary" type="submit">저장</button>
+          <div class="field"><label>메모 (선택)</label><textarea name="memo" placeholder="식전/식후 등">${existing ? esc(existing.memo || '') : ''}</textarea></div>
+          <button class="btn primary" type="submit">${submitLabel}</button>
         </form>`;
     }
     if (type === 'meal') {
       return `
         <div class="sheet-handle"></div>
-        <div class="sheet-head"><h2>🍚 식단 기록</h2><button data-close-sheet aria-label="닫기">✕</button></div>
-        <form id="recordForm" data-type="meal">
-          <div class="field"><label>식사 구분</label>${chipGroup('mealType', ['아침', '점심', '저녁', '간식'], mealTypeGuess())}</div>
+        <div class="sheet-head"><h2>🍚 식단 기록${suffix}</h2><button data-close-sheet aria-label="닫기">✕</button></div>
+        <form id="recordForm" data-type="meal"${editIdAttr}>
+          <div class="field"><label>식사 구분</label>${chipGroup('mealType', ['아침', '점심', '저녁', '간식'], existing ? existing.mealType : mealTypeGuess())}</div>
           <div class="field">
             <label>사진으로 기록 (선택)</label>
             <div class="photo-drop" id="photoDrop">
@@ -486,21 +502,21 @@
           </div>
           <div class="field">
             <label>음식 이름</label>
-            <input type="text" name="name" id="mealNameInput" list="foodList" placeholder="예: 비빔밥" required autocomplete="off">
+            <input type="text" name="name" id="mealNameInput" list="foodList" placeholder="예: 비빔밥" value="${existing ? esc(existing.name) : ''}" required autocomplete="off">
             <datalist id="foodList">${FoodDB.TABLE.map((f) => `<option value="${f.name}">`).join('')}</datalist>
           </div>
           <div id="aiAnalysisSlot"></div>
           <div class="field row2" style="margin-top:var(--space-3)">
-            <div><label>탄수화물 (g)</label><input type="number" name="carbs" id="mealCarbs" value="0"></div>
-            <div><label>단백질 (g)</label><input type="number" name="protein" id="mealProtein" value="0"></div>
+            <div><label>탄수화물 (g)</label><input type="number" name="carbs" id="mealCarbs" value="${existing ? existing.carbs : 0}"></div>
+            <div><label>단백질 (g)</label><input type="number" name="protein" id="mealProtein" value="${existing ? existing.protein : 0}"></div>
           </div>
           <div class="field row2">
-            <div><label>지방 (g)</label><input type="number" name="fat" id="mealFat" value="0"></div>
-            <div><label>나트륨 (mg)</label><input type="number" name="sodium" id="mealSodium" value="0"></div>
+            <div><label>지방 (g)</label><input type="number" name="fat" id="mealFat" value="${existing ? existing.fat : 0}"></div>
+            <div><label>나트륨 (mg)</label><input type="number" name="sodium" id="mealSodium" value="${existing ? existing.sodium : 0}"></div>
           </div>
-          <div class="field"><label>혈당지수 (GI, 선택)</label><input type="number" name="gi" id="mealGi" value="0"></div>
+          <div class="field"><label>혈당지수 (GI, 선택)</label><input type="number" name="gi" id="mealGi" value="${existing ? (existing.gi ?? 0) : 0}"></div>
           ${dateTimeFields}
-          <button class="btn primary" type="submit">저장</button>
+          <button class="btn primary" type="submit">${submitLabel}</button>
         </form>`;
     }
     return '';
@@ -708,6 +724,7 @@
     const form = e.target.closest('#recordForm');
     if (!form) return;
     const type = form.dataset.type;
+    const editId = form.dataset.editId ? Number(form.dataset.editId) : null;
     const fd = new FormData(form);
     const date = fd.get('date'), time = fd.get('time');
     const timestamp = new Date(`${date}T${time}`).toISOString();
@@ -728,8 +745,13 @@
     const err = validateRecord(type, record);
     if (err) { toast(err); return; }
 
-    await DB.add(TYPE_META[type].store, record);
-    toast('기록을 저장했어요');
+    if (editId) {
+      await DB.update(TYPE_META[type].store, { ...record, id: editId });
+      toast('기록을 수정했어요');
+    } else {
+      await DB.add(TYPE_META[type].store, record);
+      toast('기록을 저장했어요');
+    }
     closeSheet();
     render();
   });

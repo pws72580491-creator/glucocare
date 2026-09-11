@@ -62,6 +62,30 @@ const DB = (() => {
     });
   }
 
+  async function get(storeName, id) {
+    const store = await tx(storeName, 'readonly');
+    return new Promise((resolve, reject) => {
+      const req = store.get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  // record에 기존 id가 포함되어 있으면 그 자리에서 덮어쓴다(put) — 새 기록으로
+  // 추가되는 게 아니라 수정된다.
+  async function update(storeName, record) {
+    if (record.id === undefined || record.id === null) {
+      throw new Error('update()에는 record.id가 필요합니다');
+    }
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const t = db.transaction(storeName, 'readwrite');
+      t.objectStore(storeName).put(record);
+      t.oncomplete = () => resolve(record);
+      t.onerror = (e) => reject(e.target.error);
+    });
+  }
+
   async function remove(storeName, id) {
     const db = await open();
     return new Promise((resolve, reject) => {
@@ -169,5 +193,5 @@ const DB = (() => {
     return count;
   }
 
-  return { open, add, getAll, remove, getSince, setMeta, getMeta, seedIfEmpty, hasDemoData, clearDemoData, STORES };
+  return { open, add, get, update, getAll, remove, getSince, setMeta, getMeta, seedIfEmpty, hasDemoData, clearDemoData, STORES };
 })();
