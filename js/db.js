@@ -193,5 +193,44 @@ const DB = (() => {
     return count;
   }
 
-  return { open, add, get, update, getAll, remove, getSince, setMeta, getMeta, seedIfEmpty, hasDemoData, clearDemoData, STORES };
+  // 전체 데이터를 JSON으로 내보낸다. CSV 내보내기(최근 30일, 인쇄/스프레드시트용)와 달리
+  // 기간 제한 없이 전체 저장소를 담아서, 기기 교체·브라우저 데이터 삭제 시 복원할 수 있는
+  // 유일한 경로로 쓴다.
+  async function exportAllJson() {
+    const data = {};
+    for (const s of STORES) {
+      if (s === 'meta') continue;
+      data[s] = await getAll(s);
+    }
+    const meta = {};
+    const shareCode = await getMeta('shareCode');
+    if (shareCode) meta.shareCode = shareCode;
+    return { app: 'glucocare-pro', schemaVersion: 1, exportedAt: new Date().toISOString(), data, meta };
+  }
+
+  // 백업 JSON을 복원한다. 각 기록은 기존 id를 버리고 새로 추가되므로(add) 지금 기기에
+  // 이미 있는 데이터와 충돌하지 않는다 — 다만 같은 백업을 두 번 복원하면 그만큼 중복이
+  // 생기니, 호출하는 쪽(UI)에서 사용자에게 미리 안내해야 한다.
+  async function importAllJson(payload) {
+    if (!payload || typeof payload !== 'object' || typeof payload.data !== 'object' || !payload.data) {
+      throw new Error('올바른 백업 파일이 아니에요.');
+    }
+    let count = 0;
+    for (const s of STORES) {
+      if (s === 'meta') continue;
+      const rows = Array.isArray(payload.data[s]) ? payload.data[s] : [];
+      for (const r of rows) {
+        if (!r || typeof r !== 'object' || !r.timestamp) continue; // 최소한의 형식 점검
+        const { id, ...rest } = r;
+        await add(s, rest);
+        count++;
+      }
+    }
+    if (payload.meta && payload.meta.shareCode) {
+      await setMeta('shareCode', payload.meta.shareCode);
+    }
+    return count;
+  }
+
+  return { open, add, get, update, getAll, remove, getSince, setMeta, getMeta, seedIfEmpty, hasDemoData, clearDemoData, exportAllJson, importAllJson, STORES };
 })();

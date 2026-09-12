@@ -2,7 +2,7 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.5.0';
 
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
@@ -149,6 +149,7 @@
         name: record.name, carbs: record.carbs, protein: record.protein, fat: record.fat,
         sodium: record.sodium, gi: record.gi ?? 0, confidence: 1, source: 'saved',
       }];
+      currentMealNote = record.photoNote || '';
     }
     openSheet(formHtml(type, record));
     if (type === 'meal') renderMealAnalysis();
@@ -263,6 +264,7 @@
 
     const a1c = Insights.estimateA1c(glucose.length ? glucose.reduce((a, r) => a + r.value, 0) / glucose.length : null);
     $('#a1cValue').textContent = a1c ? `${a1c}%` : '–';
+    $('#glucoseRangeLabel').textContent = `목표 ${Insights.GLUCOSE_TARGET.min}–${Insights.GLUCOSE_TARGET.max}`;
 
     Charts.lineChart($('#chartGlucose'),
       [{ label: '혈당', color: '#1F5C52', points: glucose.map((r) => ({ t: new Date(r.timestamp).getTime(), v: r.value })) }],
@@ -312,14 +314,9 @@
     ];
     $('#reportTable').innerHTML = table.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
 
-    const buckets = [
-      { label: '저혈당', test: (v) => v < 70, color: '#B24632' },
-      { label: '정상', test: (v) => v >= 70 && v <= 140, color: '#3F7A56' },
-      { label: '주의', test: (v) => v > 140 && v <= 180, color: '#C97A22' },
-      { label: '고혈당', test: (v) => v > 180, color: '#B24632' },
-    ];
-    const counts = buckets.map((b) => glucose.filter(b.test).length);
-    Charts.barChart($('#chartReport'), buckets.map((b) => b.label), counts, buckets.map((b) => b.color));
+    const zones = Insights.GLUCOSE_ZONES;
+    const counts = zones.map((z) => glucose.filter(z.test).length);
+    Charts.barChart($('#chartReport'), zones.map((z) => z.label), counts, zones.map((z) => z.color));
   }
 
   $('#btnPrintReport').addEventListener('click', () => window.print());
@@ -329,7 +326,7 @@
   // 있는 칼럼명을 두고, 해당 없는 칸은 비워두는 넓은(wide) 포맷으로 바꿨다.
   const CSV_COLUMNS = [
     '구분', '일시', '혈당(mg/dL)', '측정시점', '수축기(mmHg)', '이완기(mmHg)', '맥박',
-    '체중(kg)', '식사구분', '음식이름', '탄수화물(g)', '단백질(g)', '지방(g)', '나트륨(mg)', 'GI',
+    '체중(kg)', '식사구분', '음식이름', '탄수화물(g)', '단백질(g)', '지방(g)', '나트륨(mg)', 'GI', '사진분석메모',
     '운동종류', '운동시간(분)', '강도', '약품명', '용량', '메모',
   ];
   function csvRow(values) {
@@ -342,7 +339,7 @@
       if (r._type === 'glucose') return csvRow({ '구분': '혈당', '일시': r.timestamp, '혈당(mg/dL)': r.value, '측정시점': r.context, '메모': r.memo || '' });
       if (r._type === 'bp') return csvRow({ '구분': '혈압', '일시': r.timestamp, '수축기(mmHg)': r.systolic, '이완기(mmHg)': r.diastolic, '맥박': r.pulse || '', '메모': r.memo || '' });
       if (r._type === 'weight') return csvRow({ '구분': '체중', '일시': r.timestamp, '체중(kg)': r.value, '메모': r.memo || '' });
-      if (r._type === 'meal') return csvRow({ '구분': '식단', '일시': r.timestamp, '식사구분': r.mealType, '음식이름': r.name, '탄수화물(g)': r.carbs, '단백질(g)': r.protein, '지방(g)': r.fat, '나트륨(mg)': r.sodium, 'GI': r.gi ?? '' });
+      if (r._type === 'meal') return csvRow({ '구분': '식단', '일시': r.timestamp, '식사구분': r.mealType, '음식이름': r.name, '탄수화물(g)': r.carbs, '단백질(g)': r.protein, '지방(g)': r.fat, '나트륨(mg)': r.sodium, 'GI': r.gi ?? '', '사진분석메모': r.photoNote || '' });
       if (r._type === 'exercise') return csvRow({ '구분': '운동', '일시': r.timestamp, '운동종류': r.type, '운동시간(분)': r.minutes, '강도': r.intensity || '' });
       if (r._type === 'medication') return csvRow({ '구분': '약물', '일시': r.timestamp, '약품명': r.name, '용량': r.dose || '', '메모': r.memo || '' });
       return CSV_COLUMNS.map(() => '');
@@ -366,8 +363,7 @@
     $('#shareCode').textContent = code.split('').join(' ');
 
     const hasDemo = await DB.hasDemoData();
-    $('#dataManageHead').style.display = hasDemo ? '' : 'none';
-    $('#dataManageCard').style.display = hasDemo ? '' : 'none';
+    $('#demoDataRow').style.display = hasDemo ? '' : 'none';
 
     $('#versionFooter').textContent = `글루코케어 Pro · v${APP_VERSION}`;
   }
@@ -376,6 +372,39 @@
     const n = await DB.clearDemoData();
     toast(n ? '체험 데이터를 삭제했어요' : '삭제할 체험 데이터가 없어요');
     render();
+  });
+
+  $('#btnExportJson').addEventListener('click', async () => {
+    try {
+      const dump = await DB.exportAllJson();
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `glucocare_backup_${todayStr()}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('전체 데이터를 백업했어요');
+    } catch {
+      toast('백업에 실패했어요');
+    }
+  });
+
+  $('#btnImportJson').addEventListener('click', () => $('#importJsonInput').click());
+
+  $('#importJsonInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const ok = confirm('백업 파일의 기록을 지금 데이터에 추가로 복원할까요?\n기존 기록은 지워지지 않고 백업 내용이 더해집니다. (같은 백업을 두 번 복원하면 중복이 생겨요)');
+    if (!ok) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      const count = await DB.importAllJson(payload);
+      toast(`${count}건 복원했어요`);
+      render();
+    } catch (err) {
+      toast(err && err.message === '올바른 백업 파일이 아니에요.' ? err.message : '복원에 실패했어요. 올바른 백업 파일인지 확인해주세요.');
+    }
   });
 
   $('#btnCopyCode').addEventListener('click', async () => {
@@ -420,7 +449,7 @@
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-add-type]');
     if (btn) {
-      if (btn.dataset.addType === 'meal') currentMealItems = [];
+      if (btn.dataset.addType === 'meal') { currentMealItems = []; currentMealNote = ''; }
       openSheet(formHtml(btn.dataset.addType));
     }
   });
@@ -555,6 +584,9 @@
   // 식단 폼에서 지금까지 인식된 음식 항목들 (사진 여러 장을 올리면 계속 누적됨).
   // 폼을 새로 열 때마다 openRecordForEdit / data-add-type 클릭 핸들러에서 초기화한다.
   let currentMealItems = []; // [{name, carbs, protein, fat, sodium, gi, confidence, source: 'local'|'ai'|'saved'}]
+  // AI 사진 분석이 돌려준 한 줄 설명(추정 근거·불확실성 등). 사진을 여러 장 올리면
+  // 서로 다른 설명을 " / "로 이어붙인다. 저장 시 meal 레코드의 photoNote에 담긴다.
+  let currentMealNote = '';
 
   function computeMealTotals(items) {
     if (!items.length) return null;
@@ -632,6 +664,7 @@
             </li>`).join('')}
         </ul>
         <div class="note">추정치예요 (평균 신뢰도 ${Math.round(totals.confidence * 100)}%). 실제 섭취량에 맞게 아래 값을 조정하세요.</div>
+        ${currentMealNote ? `<div class="note">💬 ${esc(currentMealNote)}</div>` : ''}
       </div>` : '';
     slot.innerHTML = `
       ${itemsHtml}
@@ -747,6 +780,10 @@
           : { name: it.name, carbs: it.carbs_g, protein: it.protein_g, fat: it.fat_g, sodium: it.sodium_mg, gi: it.gi, confidence: it.confidence, source: 'ai' };
       });
       currentMealItems.push(...resolved);
+      const incomingNote = String(data.note || '').trim();
+      if (incomingNote && !currentMealNote.includes(incomingNote)) {
+        currentMealNote = [currentMealNote, incomingNote].filter(Boolean).join(' / ');
+      }
       syncMealFieldsFromItems();
       if (status) status.textContent = `AI 분석 완료! 이번 사진에서 ${resolved.length}개 인식 (총 ${currentMealItems.length}개). 필요하면 아래 값을 수정하세요.`;
     } catch (err) {
@@ -861,7 +898,7 @@
       ...record, mealType: fd.get('mealType'), name: fd.get('name'),
       carbs: Number(fd.get('carbs') || 0), protein: Number(fd.get('protein') || 0),
       fat: Number(fd.get('fat') || 0), sodium: Number(fd.get('sodium') || 0), gi: Number(fd.get('gi') || 0),
-      photoNote: '',
+      photoNote: currentMealNote || '',
     };
 
     const err = validateRecord(type, record);
@@ -888,7 +925,11 @@
     if (state.view === 'share') await renderShare();
   }
 
-  window.addEventListener('resize', () => { if (state.view === 'charts') renderCharts(); });
+  let resizeDebounce;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeDebounce);
+    resizeDebounce = setTimeout(() => { if (state.view === 'charts') renderCharts(); }, 150);
+  });
 
   // ---------------------------------------------------------------- init
   (async function init() {

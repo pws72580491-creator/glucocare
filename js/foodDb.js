@@ -1,15 +1,16 @@
 /*
- * foodDb.js — 음식 인식 · 영양 분석
+ * foodDb.js — 음식 매칭 · 식사 점수
  *
- * 실제 사진 인식(AI 음식 인식)은 이미지 분류 모델(API) 없이는 브라우저에서 처리할 수 없습니다.
- * 이 파일은 두 가지를 제공합니다:
+ * 실제 사진 → 음식 인식은 api/analyze-meal.js(Vercel 서버리스 함수)가 Gemini Vision으로
+ * 처리합니다(v1.1.0~). 이 파일은 그 결과를 다듬고 보완하는 역할입니다:
  *   1) FoodDB.TABLE — 자주 먹는 한식 위주의 영양 참고 테이블 (탄수화물/단백질/지방/나트륨/GI)
- *   2) FoodDB.matchByName(query) — 음식 이름으로 테이블을 검색해 값을 자동 채워주는 보조 기능
+ *   2) FoodDB.matchByName(query) — 음식 이름(직접 입력 또는 AI가 인식한 이름)으로 테이블을
+ *      검색해 검수된 값으로 대체하는 기능 — AI 추정치보다 이쪽을 신뢰도 높게 취급합니다
+ *      (js/app.js의 handleMealPhotoFile 참고)
+ *   3) FoodDB.estimateMealScore(meal) — 저장될 영양 수치를 기준으로 한 식사 점수/코멘트
  *
- * 사진을 올리면 이름 검색 UI로 자연스럽게 이어지도록 구성했습니다.
- * 실제 사진 → 음식명 인식을 붙이려면, 기존 "발주관리" 앱에서 쓰신 Gemini Vision 패턴처럼
- * js/aiVision.example.js 를 참고해 이미지 base64를 멀티모달 모델에 전달하고,
- * 반환된 음식명을 FoodDB.matchByName()에 넘기면 됩니다.
+ * 사진 없이 이름만 입력해도 매칭이 되도록 만들어서, 카메라를 쓸 수 없는 상황(오프라인,
+ * 배포 환경에 서버리스 함수 미설정 등)에도 이 파일만으로 폴백이 가능합니다.
  */
 const FoodDB = (() => {
   // 100g 또는 1인분 기준 대략값 — 참고용 수치이며 실제 섭취량에 따라 달라집니다.
@@ -90,3 +91,6 @@ const FoodDB = (() => {
 
   return { TABLE, matchByName, estimateMealScore };
 })();
+// verify.js(Node)에서 순수 로직만 불러와 검증할 수 있도록 하는 가드 — 브라우저에서는
+// module이 없으므로 이 줄은 아무 영향이 없다.
+if (typeof module !== 'undefined' && module.exports) module.exports = FoodDB;

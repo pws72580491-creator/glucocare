@@ -3,6 +3,18 @@
  */
 const Insights = (() => {
   const GLUCOSE_TARGET = { min: 70, max: 140 };
+  const GLUCOSE_HIGH = 180; // 이 값을 넘으면 '고혈당' 구간 (리포트 분포차트 기준)
+
+  // 리포트 탭 "기간 내 혈당 분포" 차트의 구간 정의.
+  // GLUCOSE_TARGET/GLUCOSE_HIGH을 바꾸면 이 구간도 함께 따라간다 — 예전엔 app.js에
+  // 70/140/180이 따로 하드코딩돼 있어서, 목표범위를 여기서만 바꾸면 리포트 차트와
+  // 어긋날 수 있었다.
+  const GLUCOSE_ZONES = [
+    { key: 'low', label: '저혈당', test: (v) => v < GLUCOSE_TARGET.min, color: '#B24632' },
+    { key: 'normal', label: '정상', test: (v) => v >= GLUCOSE_TARGET.min && v <= GLUCOSE_TARGET.max, color: '#3F7A56' },
+    { key: 'caution', label: '주의', test: (v) => v > GLUCOSE_TARGET.max && v <= GLUCOSE_HIGH, color: '#C97A22' },
+    { key: 'high', label: '고혈당', test: (v) => v > GLUCOSE_HIGH, color: '#B24632' },
+  ];
 
   // ADAG 연구 기반 공식: eAG(mg/dL) = 28.7 × A1C − 46.7  →  A1C = (eAG + 46.7) / 28.7
   function estimateA1c(avgGlucoseMgdl) {
@@ -50,5 +62,8 @@ const Insights = (() => {
     return value < min || value > max;
   }
 
-  return { GLUCOSE_TARGET, estimateA1c, stats, timeInRange, matchMealsToGlucose, isOutOfRange };
+  return { GLUCOSE_TARGET, GLUCOSE_HIGH, GLUCOSE_ZONES, estimateA1c, stats, timeInRange, matchMealsToGlucose, isOutOfRange };
 })();
+// verify.js(Node)에서 순수 로직만 불러와 검증할 수 있도록 하는 가드 — 브라우저에서는
+// module이 없으므로 이 줄은 아무 영향이 없다.
+if (typeof module !== 'undefined' && module.exports) module.exports = Insights;
