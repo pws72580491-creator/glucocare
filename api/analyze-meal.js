@@ -56,9 +56,56 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ---- 최소한의 남용 방지 (인증이 없는 엔드포인트라, 호출마다 Gemini 과금이 붙는다) ----
+// 인메모리라서 완벽하지 않다: 서버리스 인스턴스가 콜드스타트되면 리셋되고, 동시에 여러
+// 인스턴스가 떠 있으면 IP별 카운트가 인스턴스마다 따로 집계된다. 그래도 URL을 우연히
+// 발견해 스크립트로 반복 호출하는 정도는 충분히 막아준다. 지속적인 남용이 의심되면
+// Vercel 함수 호출 수와 Gemini 사용량 대시보드를 함께 확인하는 걸 권장한다(README 참고).
+const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
+const RATE_LIMIT_MAX = 8; // 식사 1건에 사진을 최대 5장까지 올릴 수 있으니, 여유를 조금 둔 값
+const requestLog = new Map(); // ip -> 최근 요청 시각[]
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const timestamps = (requestLog.get(ip) || []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+  timestamps.push(now);
+  requestLog.set(ip, timestamps);
+  if (requestLog.size > 500) { // 메모리가 계속 자라지 않도록 이따금 정리
+    for (const [key, ts] of requestLog) {
+      if (!ts.some((t) => now - t < RATE_LIMIT_WINDOW_MS)) requestLog.delete(key);
+    }
+  }
+  return timestamps.length > RATE_LIMIT_MAX;
+}
+
+function clientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim();
+  return (req.socket && req.socket.remoteAddress) || 'unknown';
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'POST 요청만 지원합니다.' });
+    return;
+  }
+
+  // 같은 오리진에서 온 요청인지 확인 — 다른 사이트가 이 엔드포인트를 그대로 가져다
+  // 쓰는 것 정도는 막아준다. Origin 헤더가 없는 경우(일부 구형 클라이언트 등)는 과도한
+  // 차단을 피하려고 통과시킨다 — 완전한 인증은 아니라서 아래 요청 제한과 함께 쓴다.
+  const origin = req.headers.origin;
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  if (origin && host) {
+    try {
+      if (new URL(origin).host !== host) {
+        res.status(403).json({ error: '허용되지 않은 요청 출처예요.' });
+        return;
+      }
+    } catch { /* Origin 파싱 실패 시 통과 */ }
+  }
+
+  if (isRateLimited(clientIp(req))) {
+    res.status(429).json({ error: '요청이 너무 잦아요. 잠시 후 다시 시도해주세요.' });
     return;
   }
 
