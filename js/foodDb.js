@@ -48,7 +48,10 @@ const FoodDB = (() => {
     for (const item of TABLE) {
       const n = normalize(item.name);
       if (n === q) return { ...item, confidence: 0.97 };
-      if (n.includes(q) || q.includes(n)) {
+      // 부분일치는 최소 2글자부터만 시도한다 — 한 글자짜리 검색어(입력 중간
+      // 상태 포함)는 다른 음식 이름 안에 우연히 포함되는 경우가 많아서
+      // (예: "구" → "고구마") 엉뚱한 음식이 잘못 매칭되기 쉽다.
+      if (q.length >= 2 && (n.includes(q) || q.includes(n))) {
         if (!best || n.length < normalize(best.name).length) best = item;
       }
     }
@@ -58,9 +61,14 @@ const FoodDB = (() => {
   function estimateMealScore(meal) {
     // 아주 단순한 휴리스틱 점수 — 실제 서비스에서는 개인별 목표·과거 반응을 반영해야 합니다.
     let score = 100;
-    if (meal.gi >= 70) score -= 25; else if (meal.gi >= 55) score -= 10;
-    if (meal.sodium >= 1200) score -= 20; else if (meal.sodium >= 800) score -= 10;
-    if (meal.carbs >= 80) score -= 15; else if (meal.carbs >= 60) score -= 5;
+    const reasons = [];
+    if (meal.gi >= 70) { score -= 25; reasons.push('혈당지수(GI)'); }
+    else if (meal.gi >= 55) { score -= 10; reasons.push('혈당지수(GI)'); }
+    if (meal.sodium >= 1200) { score -= 20; reasons.push('나트륨'); }
+    else if (meal.sodium >= 800) { score -= 10; reasons.push('나트륨'); }
+    if (meal.carbs >= 80) { score -= 15; reasons.push('탄수화물'); }
+    else if (meal.carbs >= 60) { score -= 5; reasons.push('탄수화물'); }
+    if (meal.fat >= 35) { score -= 10; reasons.push('지방'); }
     if (meal.protein >= 20) score += 5;
     score = Math.max(30, Math.min(100, score));
 
@@ -68,10 +76,14 @@ const FoodDB = (() => {
     let comment = '탄수화물과 나트륨 균형이 양호한 식사예요.';
     if (score < 55) {
       tier = 'low';
-      comment = '혈당지수(GI)와 나트륨이 높은 편이에요. 식이섬유나 단백질을 더해보세요.';
+      comment = reasons.length
+        ? `${reasons.join('·')}이(가) 높은 편이에요. 식이섬유나 단백질을 더해보세요.`
+        : '전반적으로 부담이 있는 식사예요.';
     } else if (score < 78) {
       tier = 'mid';
-      comment = '나쁘지 않지만 정제 탄수화물 비중을 조금 줄이면 더 좋아요.';
+      comment = reasons.length
+        ? `나쁘지 않지만 ${reasons.join('·')} 비중을 조금 줄이면 더 좋아요.`
+        : '나쁘지 않지만 정제 탄수화물 비중을 조금 줄이면 더 좋아요.';
     }
     return { score, tier, comment };
   }

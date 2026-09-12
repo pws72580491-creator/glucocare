@@ -2,7 +2,7 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
-  const APP_VERSION = '1.3.0';
+  const APP_VERSION = '1.4.0';
 
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
@@ -17,7 +17,6 @@
     view: 'dashboard',
     recordFilter: 'all',
     chartRange: 30,
-    pendingMealAnalysis: null,
   };
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -325,19 +324,30 @@
 
   $('#btnPrintReport').addEventListener('click', () => window.print());
 
+  // 기존에는 '항목1/항목2/항목3'처럼 공용 칸에 욱여넣어서, 식단의 단백질·지방·GI가
+  // 아예 빠지고 식사구분(mealType)이 "메모" 칸에 잘못 들어가곤 했다. 타입마다 의미
+  // 있는 칼럼명을 두고, 해당 없는 칸은 비워두는 넓은(wide) 포맷으로 바꿨다.
+  const CSV_COLUMNS = [
+    '구분', '일시', '혈당(mg/dL)', '측정시점', '수축기(mmHg)', '이완기(mmHg)', '맥박',
+    '체중(kg)', '식사구분', '음식이름', '탄수화물(g)', '단백질(g)', '지방(g)', '나트륨(mg)', 'GI',
+    '운동종류', '운동시간(분)', '강도', '약품명', '용량', '메모',
+  ];
+  function csvRow(values) {
+    return CSV_COLUMNS.map((col) => (values[col] !== undefined && values[col] !== null ? values[col] : ''));
+  }
+
   $('#btnExportCsv').addEventListener('click', async () => {
     const rows = await fetchSinceTyped(30);
-    const header = ['구분', '일시', '항목1', '항목2', '항목3', '메모'];
     const lines = rows.map((r) => {
-      if (r._type === 'glucose') return ['혈당', r.timestamp, r.value, r.context, '', r.memo || ''];
-      if (r._type === 'bp') return ['혈압', r.timestamp, r.systolic, r.diastolic, r.pulse || '', r.memo || ''];
-      if (r._type === 'weight') return ['체중', r.timestamp, r.value, '', '', r.memo || ''];
-      if (r._type === 'meal') return ['식단', r.timestamp, r.name, r.carbs, r.sodium, r.mealType];
-      if (r._type === 'exercise') return ['운동', r.timestamp, r.type, r.minutes, r.intensity || '', ''];
-      if (r._type === 'medication') return ['약물', r.timestamp, r.name, r.dose || '', '', r.memo || ''];
-      return [];
+      if (r._type === 'glucose') return csvRow({ '구분': '혈당', '일시': r.timestamp, '혈당(mg/dL)': r.value, '측정시점': r.context, '메모': r.memo || '' });
+      if (r._type === 'bp') return csvRow({ '구분': '혈압', '일시': r.timestamp, '수축기(mmHg)': r.systolic, '이완기(mmHg)': r.diastolic, '맥박': r.pulse || '', '메모': r.memo || '' });
+      if (r._type === 'weight') return csvRow({ '구분': '체중', '일시': r.timestamp, '체중(kg)': r.value, '메모': r.memo || '' });
+      if (r._type === 'meal') return csvRow({ '구분': '식단', '일시': r.timestamp, '식사구분': r.mealType, '음식이름': r.name, '탄수화물(g)': r.carbs, '단백질(g)': r.protein, '지방(g)': r.fat, '나트륨(mg)': r.sodium, 'GI': r.gi ?? '' });
+      if (r._type === 'exercise') return csvRow({ '구분': '운동', '일시': r.timestamp, '운동종류': r.type, '운동시간(분)': r.minutes, '강도': r.intensity || '' });
+      if (r._type === 'medication') return csvRow({ '구분': '약물', '일시': r.timestamp, '약품명': r.name, '용량': r.dose || '', '메모': r.memo || '' });
+      return CSV_COLUMNS.map(() => '');
     });
-    const csv = [header, ...lines].map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = [CSV_COLUMNS, ...lines].map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -388,7 +398,6 @@
   }
   function closeSheet() {
     sheetOverlay.classList.remove('active');
-    state.pendingMealAnalysis = null;
   }
   sheetOverlay.addEventListener('click', (e) => { if (e.target === sheetOverlay) closeSheet(); });
   document.addEventListener('click', (e) => { if (e.target.closest('[data-close-sheet]')) closeSheet(); });
@@ -520,14 +529,14 @@
           </div>
           <div id="aiAnalysisSlot"></div>
           <div class="field row2" style="margin-top:var(--space-3)">
-            <div><label>탄수화물 (g)</label><input type="number" name="carbs" id="mealCarbs" value="${existing ? existing.carbs : 0}"></div>
-            <div><label>단백질 (g)</label><input type="number" name="protein" id="mealProtein" value="${existing ? existing.protein : 0}"></div>
+            <div><label>탄수화물 (g)</label><input type="number" name="carbs" id="mealCarbs" min="0" max="300" value="${existing ? existing.carbs : 0}"></div>
+            <div><label>단백질 (g)</label><input type="number" name="protein" id="mealProtein" min="0" max="200" value="${existing ? existing.protein : 0}"></div>
           </div>
           <div class="field row2">
-            <div><label>지방 (g)</label><input type="number" name="fat" id="mealFat" value="${existing ? existing.fat : 0}"></div>
-            <div><label>나트륨 (mg)</label><input type="number" name="sodium" id="mealSodium" value="${existing ? existing.sodium : 0}"></div>
+            <div><label>지방 (g)</label><input type="number" name="fat" id="mealFat" min="0" max="200" value="${existing ? existing.fat : 0}"></div>
+            <div><label>나트륨 (mg)</label><input type="number" name="sodium" id="mealSodium" min="0" max="6000" value="${existing ? existing.sodium : 0}"></div>
           </div>
-          <div class="field"><label>혈당지수 (GI, 선택)</label><input type="number" name="gi" id="mealGi" value="${existing ? (existing.gi ?? 0) : 0}"></div>
+          <div class="field"><label>혈당지수 (GI, 선택)</label><input type="number" name="gi" id="mealGi" min="0" max="100" value="${existing ? (existing.gi ?? 0) : 0}"></div>
           ${dateTimeFields}
           <button class="btn primary" type="submit">${submitLabel}</button>
         </form>`;
@@ -579,6 +588,14 @@
       $('#mealFat').value = totals.fat;
       $('#mealSodium').value = totals.sodium;
       $('#mealGi').value = totals.gi;
+    } else {
+      // 항목이 하나도 안 남았으면(전부 제거) — 이름 필드는 사용자가 입력한
+      // 그대로 두고, 잘못 채워졌던 영양 수치만 0으로 리셋한다.
+      $('#mealCarbs').value = 0;
+      $('#mealProtein').value = 0;
+      $('#mealFat').value = 0;
+      $('#mealSodium').value = 0;
+      $('#mealGi').value = 0;
     }
     renderMealAnalysis();
   }
@@ -664,6 +681,19 @@
     });
   }
 
+  // 사진 여러 장을 무제한으로 올리면 Gemini 호출이 그만큼 쌓이고(비용) 인식된
+  // 항목 목록도 지나치게 길어질 수 있어 상한을 둔다. 사진 1장당 서버에서
+  // 최대 6개 항목까지 인식하므로, 5장이면 최악의 경우 30개까지 쌓일 수 있다.
+  const MAX_MEAL_PHOTOS = 5;
+
+  function updatePhotoButtonState() {
+    const count = $('#photoPreviewRow')?.children.length || 0;
+    const disabled = count >= MAX_MEAL_PHOTOS;
+    const takeBtn = $('#btnTakePhoto'), pickBtn = $('#btnPickPhoto');
+    if (takeBtn) takeBtn.disabled = disabled;
+    if (pickBtn) pickBtn.disabled = disabled;
+  }
+
   function addPhotoThumbnail(dataUrl) {
     const row = $('#photoPreviewRow');
     if (!row) return;
@@ -685,6 +715,7 @@
     }
 
     addPhotoThumbnail(compressed.dataUrl);
+    updatePhotoButtonState();
     const status = $('#photoStatus');
     const photoCount = $('#photoPreviewRow')?.children.length || 1;
     if (status) status.textContent = `🔎 사진을 분석하고 있어요… (${photoCount}번째 사진)`;
@@ -737,6 +768,11 @@
     if ((e.target.id !== 'cameraInput' && e.target.id !== 'galleryInput') || !e.target.files[0]) return;
     const file = e.target.files[0];
     e.target.value = ''; // 같은 파일을 다시 골라도 change 이벤트가 또 뜨도록
+    const currentCount = $('#photoPreviewRow')?.children.length || 0;
+    if (currentCount >= MAX_MEAL_PHOTOS) {
+      toast(`사진은 최대 ${MAX_MEAL_PHOTOS}장까지 추가할 수 있어요`);
+      return;
+    }
     await handleMealPhotoFile(file);
   });
 
@@ -754,6 +790,18 @@
           $('#mealFat').value = match.fat;
           $('#mealSodium').value = match.sodium;
           $('#mealGi').value = match.gi;
+          renderMealAnalysis();
+        } else if (currentMealItems.length === 1 && currentMealItems[0].source === 'local') {
+          // 방금 전까지 이 입력창에서 자동으로 매칭됐던 항목인데(예: 입력 도중
+          // 한 글자짜리 상태에서 우연히 매칭됨) 이후 계속 입력해서 더 이상
+          // 아무 것도 안 맞으면, 그 잘못된 매칭 값을 지운다. 사진 분석이나
+          // 기존 기록 수정에서 온 항목(source: 'ai'/'saved')은 건드리지 않는다.
+          currentMealItems = [];
+          $('#mealCarbs').value = 0;
+          $('#mealProtein').value = 0;
+          $('#mealFat').value = 0;
+          $('#mealSodium').value = 0;
+          $('#mealGi').value = 0;
           renderMealAnalysis();
         }
       }, 350);
@@ -781,6 +829,13 @@
     }
     if (type === 'exercise') {
       if (!Number.isFinite(r.minutes) || r.minutes < 1 || r.minutes > 600) return '운동 시간이 올바르지 않아요 (1~600분)';
+    }
+    if (type === 'meal') {
+      if (!Number.isFinite(r.carbs) || r.carbs < 0 || r.carbs > 300) return '탄수화물 값이 올바르지 않아요 (0~300g)';
+      if (!Number.isFinite(r.protein) || r.protein < 0 || r.protein > 200) return '단백질 값이 올바르지 않아요 (0~200g)';
+      if (!Number.isFinite(r.fat) || r.fat < 0 || r.fat > 200) return '지방 값이 올바르지 않아요 (0~200g)';
+      if (!Number.isFinite(r.sodium) || r.sodium < 0 || r.sodium > 6000) return '나트륨 값이 올바르지 않아요 (0~6000mg)';
+      if (!Number.isFinite(r.gi) || r.gi < 0 || r.gi > 100) return '혈당지수(GI) 값이 올바르지 않아요 (0~100)';
     }
     return null;
   }
