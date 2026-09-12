@@ -2,7 +2,7 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.3.0';
 
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
@@ -145,7 +145,14 @@
     const store = TYPE_META[type].store;
     const record = await DB.get(store, id);
     if (!record) { toast('기록을 찾을 수 없어요'); return; }
+    if (type === 'meal') {
+      currentMealItems = [{
+        name: record.name, carbs: record.carbs, protein: record.protein, fat: record.fat,
+        sodium: record.sodium, gi: record.gi ?? 0, confidence: 1, source: 'saved',
+      }];
+    }
     openSheet(formHtml(type, record));
+    if (type === 'meal') renderMealAnalysis();
   }
 
   document.addEventListener('click', async (e) => {
@@ -403,7 +410,10 @@
 
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-add-type]');
-    if (btn) openSheet(formHtml(btn.dataset.addType));
+    if (btn) {
+      if (btn.dataset.addType === 'meal') currentMealItems = [];
+      openSheet(formHtml(btn.dataset.addType));
+    }
   });
 
   function chipGroup(name, options, selected) {
@@ -493,12 +503,15 @@
         <form id="recordForm" data-type="meal"${editIdAttr}>
           <div class="field"><label>식사 구분</label>${chipGroup('mealType', ['아침', '점심', '저녁', '간식'], existing ? existing.mealType : mealTypeGuess())}</div>
           <div class="field">
-            <label>사진으로 기록 (선택)</label>
-            <div class="photo-drop" id="photoDrop">
-              <div class="glyph">📷</div>
-              <p>음식 사진을 올리면 AI가 음식 이름과 영양을 추정해봐요.<br>추정이 부정확하면 아래 값을 직접 수정하면 됩니다.</p>
+            <label>사진으로 기록 (선택, 여러 장 올리면 각각 인식해서 합산해요)</label>
+            <div class="photo-actions">
+              <button type="button" class="btn ghost small" id="btnTakePhoto">📷 사진 촬영</button>
+              <button type="button" class="btn ghost small" id="btnPickPhoto">🖼 갤러리에서 선택</button>
             </div>
-            <input type="file" accept="image/*" id="photoInput" style="display:none">
+            <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none">
+            <input type="file" accept="image/*" id="galleryInput" style="display:none">
+            <div class="photo-preview-row" id="photoPreviewRow"></div>
+            <p class="photo-status" id="photoStatus"></p>
           </div>
           <div class="field">
             <label>음식 이름</label>
@@ -530,6 +543,87 @@
     return '간식';
   }
 
+  // 식단 폼에서 지금까지 인식된 음식 항목들 (사진 여러 장을 올리면 계속 누적됨).
+  // 폼을 새로 열 때마다 openRecordForEdit / data-add-type 클릭 핸들러에서 초기화한다.
+  let currentMealItems = []; // [{name, carbs, protein, fat, sodium, gi, confidence, source: 'local'|'ai'|'saved'}]
+
+  function computeMealTotals(items) {
+    if (!items.length) return null;
+    const sums = items.reduce((acc, it) => ({
+      carbs: acc.carbs + it.carbs,
+      protein: acc.protein + it.protein,
+      fat: acc.fat + it.fat,
+      sodium: acc.sodium + it.sodium,
+      carbGi: acc.carbGi + it.gi * it.carbs,
+      conf: acc.conf + it.confidence,
+    }), { carbs: 0, protein: 0, fat: 0, sodium: 0, carbGi: 0, conf: 0 });
+    // GI는 항목별로 단순 합산할 수 없는 값(식품의 성질)이라, 탄수화물 비중으로
+    // 가중평균해서 식사 전체의 대략적인 혈당 부담을 근사한다.
+    const gi = sums.carbs > 0
+      ? Math.round(sums.carbGi / sums.carbs)
+      : Math.round(items.reduce((s, it) => s + it.gi, 0) / items.length);
+    return {
+      carbs: Math.round(sums.carbs), protein: Math.round(sums.protein),
+      fat: Math.round(sums.fat), sodium: Math.round(sums.sodium),
+      gi, confidence: sums.conf / items.length,
+    };
+  }
+
+  // currentMealItems의 합산치를 폼 입력 필드에 반영한다 (사진 분석 후, 항목 제거 후 호출).
+  function syncMealFieldsFromItems() {
+    const totals = computeMealTotals(currentMealItems);
+    if (totals) {
+      $('#mealNameInput').value = currentMealItems.map((it) => it.name).join(' + ');
+      $('#mealCarbs').value = totals.carbs;
+      $('#mealProtein').value = totals.protein;
+      $('#mealFat').value = totals.fat;
+      $('#mealSodium').value = totals.sodium;
+      $('#mealGi').value = totals.gi;
+    }
+    renderMealAnalysis();
+  }
+
+  function currentMealValues() {
+    return {
+      carbs: Number($('#mealCarbs')?.value || 0),
+      protein: Number($('#mealProtein')?.value || 0),
+      fat: Number($('#mealFat')?.value || 0),
+      sodium: Number($('#mealSodium')?.value || 0),
+      gi: Number($('#mealGi')?.value || 0),
+    };
+  }
+
+  // 식사 점수는 항상 "지금 폼에 입력된 값"(저장될 값)을 기준으로 계산한다 —
+  // 인식된 항목 목록은 참고용 정보이고, 실제 저장되는 숫자는 입력 필드이기 때문이다.
+  // 사용자가 숫자를 직접 고치면 점수도 그 값을 바로 반영한다.
+  function renderMealAnalysis() {
+    const slot = $('#aiAnalysisSlot');
+    if (!slot) return;
+    const score = FoodDB.estimateMealScore(currentMealValues());
+    const totals = computeMealTotals(currentMealItems);
+    const srcLabel = { local: '로컬', ai: 'AI', saved: '기존' };
+    const itemsHtml = currentMealItems.length ? `
+      <div class="ai-analysis">
+        <div class="head">🍽️ 인식된 음식 ${currentMealItems.length}개</div>
+        <ul class="ai-items">
+          ${currentMealItems.map((it, i) => `
+            <li>
+              <span class="src ${it.source}">${srcLabel[it.source] || 'AI'}</span>
+              <span class="nm">${esc(it.name)}</span>
+              <span class="macro">탄${Math.round(it.carbs)} 단${Math.round(it.protein)} 지${Math.round(it.fat)}</span>
+              <button type="button" class="rm" data-remove-item="${i}" aria-label="이 항목 제거">✕</button>
+            </li>`).join('')}
+        </ul>
+        <div class="note">추정치예요 (평균 신뢰도 ${Math.round(totals.confidence * 100)}%). 실제 섭취량에 맞게 아래 값을 조정하세요.</div>
+      </div>` : '';
+    slot.innerHTML = `
+      ${itemsHtml}
+      <div class="meal-score">
+        <div class="ring ${score.tier}">${score.score}</div>
+        <div class="text"><b>식사 점수 ${score.score}점</b><br>${score.comment}</div>
+      </div>`;
+  }
+
   // chip toggling (event delegation, works for any chip-select group inside the sheet)
   sheetContent.addEventListener('click', (e) => {
     const chip = e.target.closest('.chip');
@@ -538,7 +632,6 @@
     $$('.chip', group).forEach((c) => c.classList.remove('active'));
     chip.classList.add('active');
     $('input[type=hidden]', group).value = chip.dataset.chipValue;
-    if (group.dataset.chipGroup === 'mealType') renderMealAnalysis();
   });
 
   // 이미지를 캔버스로 리사이즈·재압축한다. Vercel 서버리스 함수의 요청 본문 한도가
@@ -571,42 +664,18 @@
     });
   }
 
-  // AI가 인식한 음식 이름은 먼저 로컬 FoodDB(20종)와 대조한다 — 일치하면 우리가
-  // 직접 검수한 값이 더 믿을 만하므로 그쪽을 우선한다. 로컬에 없는 음식일 때만
-  // AI가 준 추정치를 그대로 쓴다.
-  function applyAiMealResult(ai) {
-    const status = $('#photoStatus');
-    if (status) status.textContent = 'AI 분석 완료! 필요하면 아래 값을 수정하세요.';
-    $('#mealNameInput').value = ai.name;
-    const local = FoodDB.matchByName(ai.name);
-    if (local) {
-      $('#mealCarbs').value = local.carbs;
-      $('#mealProtein').value = local.protein;
-      $('#mealFat').value = local.fat;
-      $('#mealSodium').value = local.sodium;
-      $('#mealGi').value = local.gi;
-      renderMealAnalysis(local);
-    } else {
-      const guess = {
-        carbs: ai.carbs_g, protein: ai.protein_g, fat: ai.fat_g, sodium: ai.sodium_mg, gi: ai.gi,
-        confidence: ai.confidence, aiNote: ai.note || '',
-      };
-      $('#mealCarbs').value = guess.carbs;
-      $('#mealProtein').value = guess.protein;
-      $('#mealFat').value = guess.fat;
-      $('#mealSodium').value = guess.sodium;
-      $('#mealGi').value = guess.gi;
-      renderMealAnalysis(guess);
-    }
+  function addPhotoThumbnail(dataUrl) {
+    const row = $('#photoPreviewRow');
+    if (!row) return;
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.alt = '식사 사진 미리보기';
+    row.appendChild(img);
   }
 
-  sheetContent.addEventListener('click', (e) => {
-    if (e.target.closest('#photoDrop')) $('#photoInput').click();
-  });
-  sheetContent.addEventListener('change', async (e) => {
-    if (e.target.id !== 'photoInput' || !e.target.files[0]) return;
-    const file = e.target.files[0];
-
+  // 사진 한 장을 분석해서 인식된 항목들을 currentMealItems에 "추가"한다(교체가 아님) —
+  // 여러 장을 올리면 그릇마다 따로 찍은 사진도 다 합산할 수 있다.
+  async function handleMealPhotoFile(file) {
     let compressed;
     try {
       compressed = await compressImageForUpload(file);
@@ -615,7 +684,10 @@
       return;
     }
 
-    $('#photoDrop').outerHTML = `<img class="photo-preview" src="${compressed.dataUrl}" alt="식사 사진 미리보기"><div class="photo-drop" id="photoDrop" style="padding:12px"><p id="photoStatus">🔎 사진을 분석하고 있어요…</p></div>`;
+    addPhotoThumbnail(compressed.dataUrl);
+    const status = $('#photoStatus');
+    const photoCount = $('#photoPreviewRow')?.children.length || 1;
+    if (status) status.textContent = `🔎 사진을 분석하고 있어요… (${photoCount}번째 사진)`;
 
     try {
       let res;
@@ -634,46 +706,39 @@
       }
       const data = await res.json();
       if (!res.ok) throw new Error(data && data.error ? data.error : '분석에 실패했어요.');
-      applyAiMealResult(data);
+      if (!Array.isArray(data.items) || !data.items.length) throw new Error('사진에서 음식을 찾지 못했어요.');
+
+      // 항목마다 로컬 테이블과 대조 — 일치하면 검수된 값이 더 믿을 만하므로 그쪽을 우선한다.
+      const resolved = data.items.map((it) => {
+        const local = FoodDB.matchByName(it.name);
+        return local
+          ? { name: it.name, carbs: local.carbs, protein: local.protein, fat: local.fat, sodium: local.sodium, gi: local.gi, confidence: local.confidence, source: 'local' }
+          : { name: it.name, carbs: it.carbs_g, protein: it.protein_g, fat: it.fat_g, sodium: it.sodium_mg, gi: it.gi, confidence: it.confidence, source: 'ai' };
+      });
+      currentMealItems.push(...resolved);
+      syncMealFieldsFromItems();
+      if (status) status.textContent = `AI 분석 완료! 이번 사진에서 ${resolved.length}개 인식 (총 ${currentMealItems.length}개). 필요하면 아래 값을 수정하세요.`;
     } catch (err) {
-      const status = $('#photoStatus');
       if (status) status.textContent = '사진이 첨부되었습니다. 아래 음식 이름으로 영양 정보를 매칭하세요.';
       toast(err.message);
     }
+  }
+
+  sheetContent.addEventListener('click', (e) => {
+    if (e.target.closest('#btnTakePhoto')) { $('#cameraInput').click(); return; }
+    if (e.target.closest('#btnPickPhoto')) { $('#galleryInput').click(); return; }
+    const rm = e.target.closest('[data-remove-item]');
+    if (rm) {
+      currentMealItems.splice(Number(rm.dataset.removeItem), 1);
+      syncMealFieldsFromItems();
+    }
   });
-
-  function currentMealValues() {
-    return {
-      carbs: Number($('#mealCarbs')?.value || 0),
-      protein: Number($('#mealProtein')?.value || 0),
-      fat: Number($('#mealFat')?.value || 0),
-      sodium: Number($('#mealSodium')?.value || 0),
-      gi: Number($('#mealGi')?.value || 0),
-    };
-  }
-
-  function renderMealAnalysis(match) {
-    const slot = $('#aiAnalysisSlot');
-    if (!slot) return;
-    const values = match || currentMealValues();
-    const score = FoodDB.estimateMealScore(values);
-    const aiOnly = !!(match && match.aiNote !== undefined);
-    slot.innerHTML = `
-      ${match ? `
-      <div class="ai-analysis">
-        <div class="head">${aiOnly ? '🤖 AI 추정 (로컬 데이터에 없는 음식)' : '✨ 영양 자동 분석'}</div>
-        <div class="nutrient-grid">
-          <div class="n"><div class="val">${match.carbs}g</div><div class="lab">탄수화물</div></div>
-          <div class="n"><div class="val">${match.protein}g</div><div class="lab">단백질</div></div>
-          <div class="n"><div class="val">${match.fat}g</div><div class="lab">지방</div></div>
-        </div>
-        <div class="note">${aiOnly && match.aiNote ? esc(match.aiNote) + ' · ' : ''}참고용 추정치예요 (신뢰도 ${Math.round(match.confidence * 100)}%). 실제 섭취량에 맞게 아래 값을 조정하세요.</div>
-      </div>` : ''}
-      <div class="meal-score">
-        <div class="ring ${score.tier}">${score.score}</div>
-        <div class="text"><b>식사 점수 ${score.score}점</b><br>${score.comment}</div>
-      </div>`;
-  }
+  sheetContent.addEventListener('change', async (e) => {
+    if ((e.target.id !== 'cameraInput' && e.target.id !== 'galleryInput') || !e.target.files[0]) return;
+    const file = e.target.files[0];
+    e.target.value = ''; // 같은 파일을 다시 골라도 change 이벤트가 또 뜨도록
+    await handleMealPhotoFile(file);
+  });
 
   let mealNameDebounce;
   sheetContent.addEventListener('input', (e) => {
@@ -682,12 +747,14 @@
       mealNameDebounce = setTimeout(() => {
         const match = FoodDB.matchByName(e.target.value);
         if (match) {
+          // 이름을 직접 새로 입력한 것은 "이 음식 하나로 다시 시작"하는 것으로 본다.
+          currentMealItems = [{ name: match.name, carbs: match.carbs, protein: match.protein, fat: match.fat, sodium: match.sodium, gi: match.gi, confidence: match.confidence, source: 'local' }];
           $('#mealCarbs').value = match.carbs;
           $('#mealProtein').value = match.protein;
           $('#mealFat').value = match.fat;
           $('#mealSodium').value = match.sodium;
           $('#mealGi').value = match.gi;
-          renderMealAnalysis(match);
+          renderMealAnalysis();
         }
       }, 350);
     }
