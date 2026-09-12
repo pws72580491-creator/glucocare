@@ -29,21 +29,28 @@ const RETRY_DELAY_MS = 700;
 const PER_ATTEMPT_TIMEOUT_MS = 8000; // 모델 최대 2개 × 시도 최대 2번 = 4번, 8초씩이면 최악의 경우도 Vercel maxDuration(45초) 안에 들어옴
 
 const PROMPT = `당신은 한국 음식 사진을 보고 무엇인지 알아내는 영양 분석 도우미입니다.
-사진 속 음식을 보고 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운, 코드블록 없이 JSON 객체 하나만 출력하세요.
+사진 속에 보이는 음식을 모두 각각의 항목으로 나누어 인식하세요 (예: 밥, 국/찌개, 반찬 각각).
+너무 잘게 쪼개지 말고, 그릇/접시 단위로 구분되는 음식 하나당 항목 하나로 답하세요(최대 6개).
+
+아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운, 코드블록 없이 JSON 객체 하나만 출력하세요.
 
 {
-  "name": "음식 이름 (한국어, 2~12자, 예: 비빔밥)",
-  "carbs_g": 1인분 기준 탄수화물(g, 숫자만),
-  "protein_g": 단백질(g, 숫자만),
-  "fat_g": 지방(g, 숫자만),
-  "sodium_mg": 나트륨(mg, 숫자만),
-  "gi": 혈당지수 추정치(0~100, 숫자만),
-  "confidence": 이 추정에 대한 확신도(0~1 사이 숫자),
+  "items": [
+    {
+      "name": "음식 이름 (한국어, 2~12자, 예: 비빔밥)",
+      "carbs_g": 1인분 기준 탄수화물(g, 숫자만),
+      "protein_g": 단백질(g, 숫자만),
+      "fat_g": 지방(g, 숫자만),
+      "sodium_mg": 나트륨(mg, 숫자만),
+      "gi": 혈당지수 추정치(0~100, 숫자만),
+      "confidence": 이 항목 추정에 대한 확신도(0~1 사이 숫자)
+    }
+  ],
   "note": "한 문장짜리 짧은 설명 (분량 추정 근거나 불확실한 이유 등)"
 }
 
-사진에 음식이 여러 개면 가장 비중이 큰 음식 하나로 답하세요.
-확실하지 않으면 confidence를 낮게 주세요. 음식 사진이 아니면 name을 빈 문자열로 두세요.`;
+사진에 음식이 하나뿐이면 items 배열에 항목 하나만 넣으세요.
+확실하지 않으면 confidence를 낮게 주세요. 음식 사진이 아니면 items를 빈 배열로 두세요.`;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -175,22 +182,29 @@ module.exports = async function handler(req, res) {
         return;
       }
 
-      const name = String(parsed.name || '').trim().slice(0, 30);
-      if (!name) {
+      const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : 0));
+      const items = rawItems
+        .slice(0, 6) // 프롬프트에서도 최대 6개로 안내하지만, 응답이 이를 넘길 경우를 대비한 안전장치
+        .map((it) => ({
+          name: String((it && it.name) || '').trim().slice(0, 30),
+          carbs_g: clamp(Number(it && it.carbs_g), 0, 300),
+          protein_g: clamp(Number(it && it.protein_g), 0, 200),
+          fat_g: clamp(Number(it && it.fat_g), 0, 200),
+          sodium_mg: clamp(Number(it && it.sodium_mg), 0, 6000),
+          gi: clamp(Number(it && it.gi), 0, 100),
+          confidence: clamp(Number(it && it.confidence), 0, 1),
+        }))
+        .filter((it) => it.name);
+
+      if (!items.length) {
         res.status(422).json({ error: '사진에서 음식을 알아보지 못했어요. 이름을 직접 입력해주세요.' });
         return;
       }
 
-      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : 0));
-      console.log(`[analyze-meal] 성공: "${name}" (model=${model}, attempt=${attempt + 1}, confidence=${parsed.confidence})`);
+      console.log(`[analyze-meal] 성공: ${items.map((it) => it.name).join(', ')} (model=${model}, attempt=${attempt + 1}, 항목 ${items.length}개)`);
       res.status(200).json({
-        name,
-        carbs_g: clamp(Number(parsed.carbs_g), 0, 300),
-        protein_g: clamp(Number(parsed.protein_g), 0, 200),
-        fat_g: clamp(Number(parsed.fat_g), 0, 200),
-        sodium_mg: clamp(Number(parsed.sodium_mg), 0, 6000),
-        gi: clamp(Number(parsed.gi), 0, 100),
-        confidence: clamp(Number(parsed.confidence), 0, 1),
+        items,
         note: String(parsed.note || '').trim().slice(0, 200),
       });
       return;
