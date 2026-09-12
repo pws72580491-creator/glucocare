@@ -443,18 +443,11 @@ a { color: inherit; }
 
 /* ---------- photo capture (meal) ---------- */
 
-.photo-drop {
-  border: 1.5px dashed var(--line);
-  border-radius: var(--radius-m);
-  padding: var(--space-5);
-  text-align: center;
-  color: var(--text-muted);
-  cursor: pointer;
-  background: var(--surface);
-}
-.photo-drop .glyph { font-size: 28px; }
-.photo-drop p { margin: var(--space-2) 0 0; font-size: 13px; line-height: 1.6; }
-.photo-preview { width: 100%; border-radius: var(--radius-m); margin-bottom: var(--space-3); max-height: 220px; object-fit: cover; }
+.photo-actions { display: flex; gap: var(--space-2); }
+.photo-actions .btn { flex: 1; width: auto; }
+.photo-status { margin: var(--space-2) 0 0; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; min-height: 1.2em; }
+.photo-preview-row { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
+.photo-preview-row img { width: 56px; height: 56px; border-radius: var(--radius-s); object-fit: cover; }
 
 .ai-analysis {
   background: var(--primary-tint);
@@ -468,6 +461,23 @@ a { color: inherit; }
 .ai-analysis .nutrient-grid .n .val { font-size: 16px; font-weight: 700; }
 .ai-analysis .nutrient-grid .n .lab { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .ai-analysis .note { font-size: 11.5px; color: var(--primary-strong); margin-top: var(--space-3); line-height: 1.5; }
+
+.ai-items { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ai-items li {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border-radius: var(--radius-s);
+  padding: 8px 10px; font-size: 12.5px;
+}
+.ai-items .src {
+  font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 999px;
+  background: var(--surface-alt); color: var(--text-muted); flex-shrink: 0;
+}
+.ai-items .src.local { background: var(--good-tint); color: var(--good); }
+.ai-items .src.ai { background: var(--accent-tint); color: var(--accent); }
+.ai-items .src.saved { background: var(--primary-tint); color: var(--primary-strong); }
+.ai-items .nm { font-weight: 600; flex-shrink: 0; }
+.ai-items .macro { color: var(--text-muted); flex: 1; }
+.ai-items .rm { background: none; border: none; color: var(--text-faint); font-size: 13px; padding: 2px 4px; cursor: pointer; flex-shrink: 0; }
 
 .meal-score {
   display: flex;
