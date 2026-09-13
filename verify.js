@@ -146,6 +146,23 @@ check('식후 150분을 넘는 기록만 있으면 매칭 안 함', () => {
   assert.strictEqual(m.delta, null);
 });
 
+// ----------------------------------------------------------- FoodDB.computeGL
+// v1.6.0: GL(혈당부하) = GI × 탄수화물(g) / 100. 분류: 10 이하 낮음, 11~19 보통, 20 이상 높음.
+check('GL 계산: GI 55 · 탄수화물 45g → 24.8 (높음)', () => {
+  const gl = FoodDB.computeGL(55, 45);
+  assert.strictEqual(gl.value, 24.8);
+  assert.strictEqual(gl.tier, 'high');
+});
+check('GL 경계값: 정확히 10이면 낮음, 11이면 보통, 20이면 높음', () => {
+  assert.strictEqual(FoodDB.computeGL(100, 10).tier, 'low');
+  assert.strictEqual(FoodDB.computeGL(100, 11).tier, 'medium');
+  assert.strictEqual(FoodDB.computeGL(100, 20).tier, 'high');
+});
+check('GI나 탄수화물이 0/undefined면 GL 0(낮음)', () => {
+  assert.strictEqual(FoodDB.computeGL(0, 0).value, 0);
+  assert.strictEqual(FoodDB.computeGL(undefined, undefined).tier, 'low');
+});
+
 console.log(`\n${passed}개 통과, ${failed}개 실패`);
 if (failed > 0) {
   console.log('일부 실패 — 위 내용을 확인하세요.');
