@@ -2,7 +2,7 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
-  const APP_VERSION = '1.6.0';
+  const APP_VERSION = '1.7.0';
 
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
@@ -109,10 +109,11 @@
     if (t === 'meal') {
       const hasDelta = r._delta !== null && r._delta !== undefined;
       const deltaText = hasDelta ? ` · 식후 변화 ${r._delta > 0 ? '+' : ''}${r._delta}` : '';
+      const gi = FoodDB.classifyGI(r.gi);
       const gl = FoodDB.computeGL(r.gi, r.carbs);
       return {
         title: `${esc(r.mealType)} · ${esc(r.name)}`,
-        meta: `${fmtDateTime(r.timestamp)} · 탄수 ${r.carbs}g · GI ${r.gi ?? '-'} · 나트륨 ${r.sodium}mg${deltaText}`,
+        meta: `${fmtDateTime(r.timestamp)} · 탄수 ${r.carbs}g · <span class="gi-tag ${gi.tier}">GI ${gi.value}</span> · 나트륨 ${r.sodium}mg${deltaText}`,
         value: `GL ${gl.value}`,
         alert: (hasDelta && r._delta > 60) || gl.tier === 'high',
       };
@@ -304,6 +305,8 @@
     const avgDia = bp.length ? Math.round(bp.reduce((a, r) => a + r.diastolic, 0) / bp.length) : null;
     const lastWeight = weight.length ? weight[weight.length - 1].value : null;
     const meals = rows.filter((r) => r._type === 'meal');
+    const avgGi = meals.length ? Math.round(meals.reduce((a, r) => a + (r.gi || 0), 0) / meals.length) : null;
+    const avgGiInfo = avgGi !== null ? FoodDB.classifyGI(avgGi) : null;
     const avgGl = meals.length
       ? Math.round((meals.reduce((a, r) => a + FoodDB.computeGL(r.gi, r.carbs).value, 0) / meals.length) * 10) / 10
       : null;
@@ -315,6 +318,7 @@
       ['최저 / 최고 혈당', s.avg ? `${s.min} / ${s.max} mg/dL` : '–'],
       ['목표 범위 유지율', tir !== null ? `${tir}%` : '–'],
       ['예상 당화혈색소', a1c ? `${a1c}%` : '–'],
+      ['평균 식사 GI(혈당지수)', avgGi !== null ? `${avgGi} · ${avgGiInfo.label}` : '–'],
       ['평균 식사 GL(혈당부하)', avgGl !== null ? `${avgGl} · ${avgGlInfo.label}` : '–'],
       ['평균 혈압', avgSys ? `${avgSys}/${avgDia} mmHg` : '–'],
       ['최근 체중', lastWeight ? `${lastWeight} kg` : '–'],
@@ -657,6 +661,7 @@
     if (!slot) return;
     const values = currentMealValues();
     const score = FoodDB.estimateMealScore(values);
+    const gi = FoodDB.classifyGI(values.gi);
     const gl = FoodDB.computeGL(values.gi, values.carbs);
     const totals = computeMealTotals(currentMealItems);
     const srcLabel = { local: '로컬', ai: 'AI', saved: '기존' };
@@ -679,7 +684,7 @@
       ${itemsHtml}
       <div class="meal-score">
         <div class="ring ${score.tier}">${score.score}</div>
-        <div class="text"><b>식사 점수 ${score.score}점</b><br>${score.comment}<br><span class="gl-badge gl-${gl.tier}">GL(혈당부하) ${gl.value} · ${gl.label}</span></div>
+        <div class="text"><b>식사 점수 ${score.score}점</b><br>${score.comment}<br><span class="glyc-badge glyc-${gi.tier}">GI ${gi.value} · ${gi.label}</span><span class="glyc-badge glyc-${gl.tier}">GL ${gl.value} · ${gl.label}</span></div>
       </div>`;
   }
 

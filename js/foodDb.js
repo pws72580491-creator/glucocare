@@ -107,7 +107,18 @@ const FoodDB = (() => {
     return { value, ...classifyGL(value) };
   }
 
-  return { TABLE, matchByName, estimateMealScore, computeGL, classifyGL };
+  // GI(혈당지수) 자체의 낮음/보통/높음 분류. estimateMealScore()가 이미 같은 경계값
+  // (55, 70)으로 감점 여부를 나누고 있어서, 그 기준을 그대로 가져와 표시용으로도
+  // 쓴다 — 점수가 GI 때문에 깎였다면 이 분류도 항상 '높음'/'보통'으로 같이 나온다.
+  function classifyGI(gi) {
+    const value = Math.round(Number(gi) || 0);
+    let tier = 'low';
+    if (value >= 70) tier = 'high';
+    else if (value >= 55) tier = 'medium';
+    return { value, tier, label: { low: '낮음', medium: '보통', high: '높음' }[tier] };
+  }
+
+  return { TABLE, matchByName, estimateMealScore, computeGL, classifyGL, classifyGI };
 })();
 // verify.js(Node)에서 순수 로직만 불러와 검증할 수 있도록 하는 가드 — 브라우저에서는
 // module이 없으므로 이 줄은 아무 영향이 없다.
