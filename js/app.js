@@ -2,7 +2,7 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
-  const APP_VERSION = '1.5.0';
+  const APP_VERSION = '1.6.0';
 
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
@@ -109,11 +109,12 @@
     if (t === 'meal') {
       const hasDelta = r._delta !== null && r._delta !== undefined;
       const deltaText = hasDelta ? ` · 식후 변화 ${r._delta > 0 ? '+' : ''}${r._delta}` : '';
+      const gl = FoodDB.computeGL(r.gi, r.carbs);
       return {
         title: `${esc(r.mealType)} · ${esc(r.name)}`,
-        meta: `${fmtDateTime(r.timestamp)} · 탄수 ${r.carbs}g · 나트륨 ${r.sodium}mg${deltaText}`,
-        value: `GI ${r.gi ?? '-'}`,
-        alert: hasDelta && r._delta > 60,
+        meta: `${fmtDateTime(r.timestamp)} · 탄수 ${r.carbs}g · GI ${r.gi ?? '-'} · 나트륨 ${r.sodium}mg${deltaText}`,
+        value: `GL ${gl.value}`,
+        alert: (hasDelta && r._delta > 60) || gl.tier === 'high',
       };
     }
     if (t === 'exercise') {
@@ -302,6 +303,11 @@
     const avgSys = bp.length ? Math.round(bp.reduce((a, r) => a + r.systolic, 0) / bp.length) : null;
     const avgDia = bp.length ? Math.round(bp.reduce((a, r) => a + r.diastolic, 0) / bp.length) : null;
     const lastWeight = weight.length ? weight[weight.length - 1].value : null;
+    const meals = rows.filter((r) => r._type === 'meal');
+    const avgGl = meals.length
+      ? Math.round((meals.reduce((a, r) => a + FoodDB.computeGL(r.gi, r.carbs).value, 0) / meals.length) * 10) / 10
+      : null;
+    const avgGlInfo = avgGl !== null ? FoodDB.classifyGL(avgGl) : null;
 
     const table = [
       ['기간', '최근 30일'],
@@ -309,6 +315,7 @@
       ['최저 / 최고 혈당', s.avg ? `${s.min} / ${s.max} mg/dL` : '–'],
       ['목표 범위 유지율', tir !== null ? `${tir}%` : '–'],
       ['예상 당화혈색소', a1c ? `${a1c}%` : '–'],
+      ['평균 식사 GL(혈당부하)', avgGl !== null ? `${avgGl} · ${avgGlInfo.label}` : '–'],
       ['평균 혈압', avgSys ? `${avgSys}/${avgDia} mmHg` : '–'],
       ['최근 체중', lastWeight ? `${lastWeight} kg` : '–'],
     ];
@@ -326,7 +333,7 @@
   // 있는 칼럼명을 두고, 해당 없는 칸은 비워두는 넓은(wide) 포맷으로 바꿨다.
   const CSV_COLUMNS = [
     '구분', '일시', '혈당(mg/dL)', '측정시점', '수축기(mmHg)', '이완기(mmHg)', '맥박',
-    '체중(kg)', '식사구분', '음식이름', '탄수화물(g)', '단백질(g)', '지방(g)', '나트륨(mg)', 'GI', '사진분석메모',
+    '체중(kg)', '식사구분', '음식이름', '탄수화물(g)', '단백질(g)', '지방(g)', '나트륨(mg)', 'GI', 'GL(혈당부하)', '사진분석메모',
     '운동종류', '운동시간(분)', '강도', '약품명', '용량', '메모',
   ];
   function csvRow(values) {
@@ -339,7 +346,7 @@
       if (r._type === 'glucose') return csvRow({ '구분': '혈당', '일시': r.timestamp, '혈당(mg/dL)': r.value, '측정시점': r.context, '메모': r.memo || '' });
       if (r._type === 'bp') return csvRow({ '구분': '혈압', '일시': r.timestamp, '수축기(mmHg)': r.systolic, '이완기(mmHg)': r.diastolic, '맥박': r.pulse || '', '메모': r.memo || '' });
       if (r._type === 'weight') return csvRow({ '구분': '체중', '일시': r.timestamp, '체중(kg)': r.value, '메모': r.memo || '' });
-      if (r._type === 'meal') return csvRow({ '구분': '식단', '일시': r.timestamp, '식사구분': r.mealType, '음식이름': r.name, '탄수화물(g)': r.carbs, '단백질(g)': r.protein, '지방(g)': r.fat, '나트륨(mg)': r.sodium, 'GI': r.gi ?? '', '사진분석메모': r.photoNote || '' });
+      if (r._type === 'meal') return csvRow({ '구분': '식단', '일시': r.timestamp, '식사구분': r.mealType, '음식이름': r.name, '탄수화물(g)': r.carbs, '단백질(g)': r.protein, '지방(g)': r.fat, '나트륨(mg)': r.sodium, 'GI': r.gi ?? '', 'GL(혈당부하)': FoodDB.computeGL(r.gi, r.carbs).value, '사진분석메모': r.photoNote || '' });
       if (r._type === 'exercise') return csvRow({ '구분': '운동', '일시': r.timestamp, '운동종류': r.type, '운동시간(분)': r.minutes, '강도': r.intensity || '' });
       if (r._type === 'medication') return csvRow({ '구분': '약물', '일시': r.timestamp, '약품명': r.name, '용량': r.dose || '', '메모': r.memo || '' });
       return CSV_COLUMNS.map(() => '');
@@ -648,7 +655,9 @@
   function renderMealAnalysis() {
     const slot = $('#aiAnalysisSlot');
     if (!slot) return;
-    const score = FoodDB.estimateMealScore(currentMealValues());
+    const values = currentMealValues();
+    const score = FoodDB.estimateMealScore(values);
+    const gl = FoodDB.computeGL(values.gi, values.carbs);
     const totals = computeMealTotals(currentMealItems);
     const srcLabel = { local: '로컬', ai: 'AI', saved: '기존' };
     const itemsHtml = currentMealItems.length ? `
@@ -670,7 +679,7 @@
       ${itemsHtml}
       <div class="meal-score">
         <div class="ring ${score.tier}">${score.score}</div>
-        <div class="text"><b>식사 점수 ${score.score}점</b><br>${score.comment}</div>
+        <div class="text"><b>식사 점수 ${score.score}점</b><br>${score.comment}<br><span class="gl-badge gl-${gl.tier}">GL(혈당부하) ${gl.value} · ${gl.label}</span></div>
       </div>`;
   }
 

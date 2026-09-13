@@ -89,7 +89,25 @@ const FoodDB = (() => {
     return { score, tier, comment };
   }
 
-  return { TABLE, matchByName, estimateMealScore };
+  // GL(혈당부하, Glycemic Load) = GI × 탄수화물(g) / 100.
+  // GI는 "이 식품이 혈당을 얼마나 빨리 올리는가"만 나타내고 실제로 얼마나 먹었는지는
+  // 반영하지 않는다 — 예를 들어 수박은 GI가 높지만 한 조각의 탄수화물 양이 적어서
+  // GL은 낮다. GL은 GI에 실제 섭취량(탄수화물 g)을 곱해서, 이번 식사가 실제로
+  // 혈당에 미칠 영향에 더 가깝게 근사한 값이다. 분류 기준(국제적으로 통용되는 값):
+  // 10 이하 낮음, 11~19 보통, 20 이상 높음.
+  function classifyGL(value) {
+    let tier = 'low';
+    if (value >= 20) tier = 'high';
+    else if (value >= 11) tier = 'medium';
+    return { tier, label: { low: '낮음', medium: '보통', high: '높음' }[tier] };
+  }
+
+  function computeGL(gi, carbs) {
+    const value = Math.round(((Number(gi) || 0) * (Number(carbs) || 0)) / 10) / 10;
+    return { value, ...classifyGL(value) };
+  }
+
+  return { TABLE, matchByName, estimateMealScore, computeGL, classifyGL };
 })();
 // verify.js(Node)에서 순수 로직만 불러와 검증할 수 있도록 하는 가드 — 브라우저에서는
 // module이 없으므로 이 줄은 아무 영향이 없다.
