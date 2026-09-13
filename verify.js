@@ -163,6 +163,15 @@ check('GI나 탄수화물이 0/undefined면 GL 0(낮음)', () => {
   assert.strictEqual(FoodDB.computeGL(undefined, undefined).tier, 'low');
 });
 
+// ------------------------------------------------------------- FoodDB.classifyGI
+// v1.7.0: GI 자체의 낮음/보통/높음 분류 (estimateMealScore의 55/70 경계값과 동일).
+check('GI 경계값: 54는 낮음, 55는 보통, 69는 보통, 70은 높음', () => {
+  assert.strictEqual(FoodDB.classifyGI(54).tier, 'low');
+  assert.strictEqual(FoodDB.classifyGI(55).tier, 'medium');
+  assert.strictEqual(FoodDB.classifyGI(69).tier, 'medium');
+  assert.strictEqual(FoodDB.classifyGI(70).tier, 'high');
+});
+
 console.log(`\n${passed}개 통과, ${failed}개 실패`);
 if (failed > 0) {
   console.log('일부 실패 — 위 내용을 확인하세요.');
