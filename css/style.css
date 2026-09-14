@@ -484,10 +484,11 @@ a { color: inherit; }
 .glyc-badge.glyc-medium { background: var(--accent-tint); color: var(--accent); }
 .glyc-badge.glyc-high { background: var(--alert-tint); color: var(--alert); }
 
-.record-row .meta .gi-tag { font-weight: 700; }
-.record-row .meta .gi-tag.low { color: var(--good); }
-.record-row .meta .gi-tag.medium { color: var(--accent); }
-.record-row .meta .gi-tag.high { color: var(--alert); }
+.tier-text { font-weight: 700; }
+.tier-text.low { color: var(--good); }
+.tier-text.medium { color: var(--accent); }
+.tier-text.high { color: var(--alert); }
+.delta-alert { color: var(--alert); font-weight: 700; }
 
 /* ---------- charts ---------- */
 
