@@ -2,7 +2,7 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
-  const APP_VERSION = '1.7.0';
+  const APP_VERSION = '1.8.0';
 
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
@@ -108,14 +108,16 @@
     }
     if (t === 'meal') {
       const hasDelta = r._delta !== null && r._delta !== undefined;
-      const deltaText = hasDelta ? ` · 식후 변화 ${r._delta > 0 ? '+' : ''}${r._delta}` : '';
+      const deltaBig = hasDelta && r._delta > 60;
+      const deltaText = hasDelta
+        ? ` · <span class="${deltaBig ? 'delta-alert' : ''}">식후 변화 ${r._delta > 0 ? '+' : ''}${r._delta}</span>`
+        : '';
       const gi = FoodDB.classifyGI(r.gi);
       const gl = FoodDB.computeGL(r.gi, r.carbs);
       return {
         title: `${esc(r.mealType)} · ${esc(r.name)}`,
-        meta: `${fmtDateTime(r.timestamp)} · 탄수 ${r.carbs}g · <span class="gi-tag ${gi.tier}">GI ${gi.value}</span> · 나트륨 ${r.sodium}mg${deltaText}`,
-        value: `GL ${gl.value}`,
-        alert: (hasDelta && r._delta > 60) || gl.tier === 'high',
+        meta: `${fmtDateTime(r.timestamp)} · 탄수 ${r.carbs}g · <span class="tier-text ${gi.tier}">GI ${gi.value}</span> · 나트륨 ${r.sodium}mg${deltaText}`,
+        value: `<span class="tier-text ${gl.tier}">GL ${gl.value}</span>`,
       };
     }
     if (t === 'exercise') {
@@ -318,8 +320,8 @@
       ['최저 / 최고 혈당', s.avg ? `${s.min} / ${s.max} mg/dL` : '–'],
       ['목표 범위 유지율', tir !== null ? `${tir}%` : '–'],
       ['예상 당화혈색소', a1c ? `${a1c}%` : '–'],
-      ['평균 식사 GI(혈당지수)', avgGi !== null ? `${avgGi} · ${avgGiInfo.label}` : '–'],
-      ['평균 식사 GL(혈당부하)', avgGl !== null ? `${avgGl} · ${avgGlInfo.label}` : '–'],
+      ['평균 식사 GI(혈당지수)', avgGi !== null ? `<span class="tier-text ${avgGiInfo.tier}">${avgGi} · ${avgGiInfo.label}</span>` : '–'],
+      ['평균 식사 GL(혈당부하)', avgGl !== null ? `<span class="tier-text ${avgGlInfo.tier}">${avgGl} · ${avgGlInfo.label}</span>` : '–'],
       ['평균 혈압', avgSys ? `${avgSys}/${avgDia} mmHg` : '–'],
       ['최근 체중', lastWeight ? `${lastWeight} kg` : '–'],
     ];
