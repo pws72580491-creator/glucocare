@@ -2,7 +2,7 @@
  * app.js — 화면 라우팅과 전체 조립
  */
 (function () {
-  const APP_VERSION = '1.8.0';
+  const APP_VERSION = '1.8.1';
 
   const TYPE_META = {
     glucose: { icon: '🩸', label: '혈당', store: 'glucose' },
@@ -377,8 +377,6 @@
 
     const hasDemo = await DB.hasDemoData();
     $('#demoDataRow').style.display = hasDemo ? '' : 'none';
-
-    $('#versionFooter').textContent = `글루코케어 Pro · v${APP_VERSION}`;
   }
 
   $('#btnClearDemo').addEventListener('click', async () => {
@@ -933,7 +931,7 @@
 
   // ------------------------------------------------------------- render all
   async function render() {
-    $('#topbarDate').textContent = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
+    $('#topbarDate').textContent = `${new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })} · v${APP_VERSION}`;
     if (state.view === 'dashboard') await renderDashboard();
     if (state.view === 'records') await renderRecords();
     if (state.view === 'charts') await renderCharts();
