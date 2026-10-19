@@ -35,6 +35,26 @@ const FoodDB = (() => {
     { name: '두부조림', carbs: 5, protein: 14, fat: 8, sodium: 520, gi: 15 },
     { name: '순두부찌개', carbs: 8, protein: 14, fat: 12, sodium: 1100, gi: 25 },
     { name: '오므라이스', carbs: 72, protein: 16, fat: 18, sodium: 980, gi: 70 },
+    // v1.9.0에서 추가 — 국제 GI 참고표(빵·귀리·사과·수박)와 국내 혈당관리 앱 보도자료
+    // (짜장면류 식후혈당 상승 1위권) 등을 참고해 선정. 복합 한식 메뉴는 기존 20종과
+    // 같은 방식으로 "주된 탄수화물원"을 기준으로 추정한 값입니다.
+    { name: '흰 식빵', carbs: 15, protein: 3, fat: 1, sodium: 150, gi: 75 },
+    { name: '통밀빵', carbs: 13, protein: 4, fat: 1.5, sodium: 160, gi: 69 },
+    { name: '오트밀', carbs: 27, protein: 6, fat: 3, sodium: 2, gi: 55 },
+    { name: '사과', carbs: 22, protein: 0.5, fat: 0.3, sodium: 2, gi: 36 },
+    { name: '수박', carbs: 16, protein: 0.6, fat: 0.2, sodium: 2, gi: 72 },
+    { name: '짜장면', carbs: 95, protein: 18, fat: 20, sodium: 1700, gi: 72 },
+    { name: '짬뽕', carbs: 75, protein: 22, fat: 14, sodium: 2200, gi: 62 },
+    { name: '칼국수', carbs: 70, protein: 12, fat: 6, sodium: 1500, gi: 58 },
+    { name: '잡채', carbs: 45, protein: 6, fat: 12, sodium: 650, gi: 48 },
+    { name: '돈까스', carbs: 35, protein: 28, fat: 22, sodium: 850, gi: 38 },
+    { name: '불고기', carbs: 10, protein: 26, fat: 14, sodium: 750, gi: 20 },
+    { name: '제육볶음', carbs: 14, protein: 22, fat: 16, sodium: 900, gi: 28 },
+    { name: '볶음밥', carbs: 72, protein: 12, fat: 14, sodium: 850, gi: 68 },
+    { name: '후라이드 치킨', carbs: 18, protein: 30, fat: 24, sodium: 700, gi: 40 },
+    { name: '요거트', carbs: 8, protein: 5, fat: 3, sodium: 55, gi: 35 },
+    { name: '견과류', carbs: 6, protein: 5, fat: 15, sodium: 2, gi: 15 },
+    { name: '우유', carbs: 10, protein: 7, fat: 7, sodium: 100, gi: 30 },
   ];
 
   function normalize(s) {
