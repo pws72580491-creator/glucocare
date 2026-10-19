@@ -146,6 +146,18 @@ check('식후 150분을 넘는 기록만 있으면 매칭 안 함', () => {
   assert.strictEqual(m.delta, null);
 });
 
+// -------------------------------------------------------- FoodDB.TABLE (v1.9.0)
+check('테이블이 37개 항목을 담고 있음 (20개 기존 + 17개 v1.9.0 추가분)', () => {
+  assert.strictEqual(FoodDB.TABLE.length, 37);
+});
+check('새로 추가된 항목이 정확매칭으로 조회됨 (짜장면 GI 72, 오트밀 GI 55)', () => {
+  assert.strictEqual(FoodDB.matchByName('짜장면').gi, 72);
+  assert.strictEqual(FoodDB.matchByName('오트밀').gi, 55);
+});
+check('"샐러드" 정확매칭은 "닭가슴살 샐러드"가 아닌 기본 샐러드 항목을 반환 (이름이 겹치는 기존 항목 회귀 확인)', () => {
+  assert.strictEqual(FoodDB.matchByName('샐러드').name, '샐러드');
+});
+
 // ----------------------------------------------------------- FoodDB.computeGL
 // v1.6.0: GL(혈당부하) = GI × 탄수화물(g) / 100. 분류: 10 이하 낮음, 11~19 보통, 20 이상 높음.
 check('GL 계산: GI 55 · 탄수화물 45g → 24.8 (높음)', () => {
